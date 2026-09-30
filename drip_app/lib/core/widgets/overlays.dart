@@ -163,6 +163,18 @@ Future<bool> showDripConfirm(
 }
 
 /// Brief floating message: a glass pill that clears the floating nav.
+/// For UI that stays visible in the beta but has no backend yet (the social
+/// layer, Discover and search, sharing…): says so instead of pretending.
+void showAfterBeta(BuildContext context, [String? feature]) {
+  Haptics.tick();
+  showDripToast(
+    context,
+    feature == null
+        ? 'This feature is coming after beta ✦'
+        : '$feature is coming after beta ✦',
+  );
+}
+
 void showDripToast(BuildContext context, String message) {
   final m = ScaffoldMessenger.maybeOf(context);
   if (m == null) return;

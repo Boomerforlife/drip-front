@@ -11,8 +11,8 @@ import '../theme/app_theme.dart';
 import 'glass.dart';
 import 'nav_glyphs.dart';
 
-/// The four primary destinations. The create button sits between them and is
-/// an action, not a destination.
+/// The four primary destinations. The Studio star sits between them and is an
+/// action (it opens Studio), not a tab.
 enum NavTab { home, scroll, wardrobe, you }
 
 /// Geometry shared by the bar and by screens that scroll underneath it.
@@ -31,14 +31,14 @@ abstract final class NavMetrics {
       height + bottomInset(context) + 6;
 }
 
-/// Slot layout: [home, scroll, CREATE, wardrobe, you].
+/// Slot layout: [home, scroll, STUDIO, wardrobe, you].
 const _tabSlots = {
   NavTab.home: 0,
   NavTab.scroll: 1,
   NavTab.wardrobe: 3,
   NavTab.you: 4,
 };
-const _createSlot = 2;
+const _studioSlot = 2;
 const _slotCount = 5;
 
 /// Floating glass navigation.
@@ -56,12 +56,12 @@ class DripBottomNav extends StatefulWidget {
     super.key,
     required this.active,
     required this.onTab,
-    required this.onCreate,
+    required this.onStudio,
   });
 
   final NavTab? active;
   final ValueChanged<NavTab> onTab;
-  final VoidCallback onCreate;
+  final VoidCallback onStudio;
 
   @override
   State<DripBottomNav> createState() => _DripBottomNavState();
@@ -217,8 +217,8 @@ class _DripBottomNavState extends State<DripBottomNav>
                         for (var slot = 0; slot < _slotCount; slot++)
                           SizedBox(
                             width: _slotWidth,
-                            child: slot == _createSlot
-                                ? _CreateButton(onTap: widget.onCreate)
+                            child: slot == _studioSlot
+                                ? _StudioButton(onTap: widget.onStudio)
                                 : _TabButton(
                                     tab: _tabAt(slot),
                                     lit: (widget.active == null && !_dragging)
@@ -360,15 +360,15 @@ class _TabButtonState extends State<_TabButton> {
   }
 }
 
-class _CreateButton extends StatefulWidget {
-  const _CreateButton({required this.onTap});
+class _StudioButton extends StatefulWidget {
+  const _StudioButton({required this.onTap});
   final VoidCallback onTap;
 
   @override
-  State<_CreateButton> createState() => _CreateButtonState();
+  State<_StudioButton> createState() => _StudioButtonState();
 }
 
-class _CreateButtonState extends State<_CreateButton> {
+class _StudioButtonState extends State<_StudioButton> {
   bool _down = false;
 
   @override
@@ -376,7 +376,7 @@ class _CreateButtonState extends State<_CreateButton> {
     final accent = context.palette.accent;
     return Semantics(
       button: true,
-      label: 'Create',
+      label: 'Studio',
       excludeSemantics: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -389,23 +389,15 @@ class _CreateButtonState extends State<_CreateButton> {
         },
         child: Center(
           child: AnimatedScale(
-            scale: _down ? 0.92 : 1,
+            scale: _down ? 0.9 : 1,
             duration: const Duration(milliseconds: 90),
             curve: Motion.out,
-            child: Container(
-              width: 40,
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-              child: SvgPicture.asset(
-                Assets.navPlus,
-                width: 18,
-                height: 18,
-                colorFilter: const ColorFilter.mode(
-                  AppColors.base,
-                  BlendMode.srcIn,
-                ),
-              ),
+            // The STUDIO star, from the supplied artwork (angular "STAR" mark).
+            child: SvgPicture.asset(
+              Assets.navStudio,
+              width: 36,
+              height: 36 * 460 / 480,
+              colorFilter: ColorFilter.mode(accent, BlendMode.srcIn),
             ),
           ),
         ),

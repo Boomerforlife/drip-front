@@ -3,18 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/activity/activity_screen.dart';
+import '../features/auth/sign_in_screen.dart';
 import '../features/create/create_ootd_screen.dart';
 import '../core/motion.dart';
 import '../features/discover/discover_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/ootd_viewer_screen.dart';
+import '../features/onboarding/onboarding_flow.dart';
 import '../features/scroll/fashion_scroll_screen.dart';
-import '../features/onboarding/colour_theory_screen.dart';
-import '../features/onboarding/follow_people_screen.dart';
-import '../features/onboarding/intro_screen.dart';
-import '../features/onboarding/style_quiz_screen.dart';
-import '../features/onboarding/welcome_screen.dart';
-import '../features/onboarding/youre_in_screen.dart';
 import '../features/outfits/outfit_detail_screen.dart';
 import '../features/photoshoot/photoshoot_result_screen.dart';
 import '../features/photoshoot/photoshoot_screen.dart';
@@ -42,11 +38,7 @@ import 'main_shell.dart';
 abstract final class Routes {
   static const splash = '/splash';
   static const welcome = '/welcome';
-  static const intro = '/onboarding/intro';
-  static const quiz = '/onboarding/quiz';
-  static const colour = '/onboarding/colour';
-  static const follow = '/onboarding/follow';
-  static const done = '/onboarding/done';
+  static const signIn = '/signin';
   static const home = '/home';
 }
 
@@ -81,6 +73,33 @@ CustomTransitionPage<void> dripPage(
           ).animate(curved),
           child: child,
         ),
+      );
+    },
+  );
+}
+
+/// The camera's page: slides in from the left edge and leaves the same way.
+CustomTransitionPage<void> cameraPage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: Motion.page,
+    reverseTransitionDuration: Motion.page,
+    transitionsBuilder: (context, animation, secondary, child) {
+      if (Motion.reduced(context)) {
+        return FadeTransition(opacity: animation, child: child);
+      }
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Motion.drawer,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(-1, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
       );
     },
   );
@@ -157,20 +176,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       final signedIn = ref.read(sessionProvider).signedIn;
       final loc = state.matchedLocation;
       final public =
-          loc == Routes.splash ||
-          loc == Routes.welcome ||
-          loc.startsWith('/onboarding');
+          loc == Routes.splash || loc == Routes.welcome || loc == Routes.signIn;
       if (!signedIn && !public) return Routes.welcome;
+      // The session just arrived (back from Google): straight into the app.
+      if (signedIn && (loc == Routes.welcome || loc == Routes.signIn)) {
+        return Routes.home;
+      }
       return null;
     },
     routes: [
       _page(Routes.splash, (_) => const SplashScreen(), fade: true),
-      _page(Routes.welcome, (_) => const WelcomeScreen(), fade: true),
-      _page(Routes.intro, (_) => const IntroScreen()),
-      _page(Routes.quiz, (_) => const StyleQuizScreen()),
-      _page(Routes.colour, (_) => const ColourTheoryScreen()),
-      _page(Routes.follow, (_) => const FollowPeopleScreen()),
-      _page(Routes.done, (_) => const YoureInScreen()),
+      _page(Routes.welcome, (_) => const OnboardingFlow(), fade: true),
+      _page(Routes.signIn, (_) => const SignInScreen()),
 
       // Full-screen (no bottom navigation).
       _page(
@@ -180,7 +197,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       _page('/themes', (_) => const ThemePickerScreen(), fade: true),
       _page('/stylist', (_) => const TaylorScreen()),
       _page('/stylist/result', (_) => const TaylorResultScreen()),
-      _page('/wardrobe/capture', (_) => const AddToWardrobeScreen()),
+      // The camera sits to the left of Home: it slides in from the left and
+      // swiping left closes it (like Instagram).
+      GoRoute(
+        path: '/wardrobe/capture',
+        pageBuilder: (context, state) =>
+            cameraPage(state, const AddToWardrobeScreen()),
+      ),
 
       // Screens hosted inside the bottom-navigation shell.
       ShellRoute(

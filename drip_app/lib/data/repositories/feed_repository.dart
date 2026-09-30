@@ -1,118 +1,71 @@
+import '../api/api_client.dart';
 import '../mock/mock_content.dart';
-import '../models/ootd.dart';
+import '../models/outfit.dart';
 
-/// Source of the home feed, stories and OOTD interactions.
-abstract interface class FeedRepository {
-  Future<List<Ootd>> feed();
-  Future<List<Story>> stories();
-  Future<Ootd?> ootd(String id);
-  Future<Ootd> setLiked(String id, {required bool liked});
-  Future<Ootd> setSaved(String id, {required bool saved});
-  Future<Ootd> publish(Ootd post);
-  Future<void> sendReaction(String ootdId, String reaction);
-  Future<void> sendMessage(String ootdId, String message);
-  Future<List<OotdComment>> comments(String ootdId);
-  Future<OotdComment> addComment(String ootdId, String text);
-  Future<void> recordShare(String ootdId);
+/// One page of the Fashion Scroll. [nextCursor] is opaque; null means the end
+/// of the feed.
+class FeedPage {
+  const FeedPage({required this.items, this.nextCursor});
+  final List<Outfit> items;
+  final String? nextCursor;
 }
 
+/// The Fashion Scroll (and Home's fresh fits): ranked, not-seen `Outfit`s.
+abstract interface class FeedRepository {
+  Future<FeedPage> page({String? cursor});
+
+  /// `open | skip | like | unlike | save`, with how long the card was on
+  /// screen. Trains the ranking; failures are ignored by callers.
+  Future<void> signal(String outfitId, String action, {int? dwellMs});
+}
+
+class ApiFeedRepository implements FeedRepository {
+  ApiFeedRepository(this._api);
+  final ApiClient _api;
+
+  @override
+  Future<FeedPage> page({String? cursor}) async {
+    final json =
+        await _api.get('/scroll', query: {'cursor': ?cursor}) as Map;
+    return FeedPage(
+      items: [
+        for (final o in (json['items'] as List?) ?? const [])
+          if (o is Map) Outfit.fromJson(o.cast<String, dynamic>()),
+      ],
+      nextCursor: json['nextCursor'] as String?,
+    );
+  }
+
+  @override
+  Future<void> signal(String outfitId, String action, {int? dwellMs}) =>
+      _api.post('/outfits/$outfitId/signal', {
+        'action': action,
+        'dwellMs': ?dwellMs,
+      });
+}
+
+/// Fixture feed for tests: the mock catalogue, three to a page.
 class MockFeedRepository implements FeedRepository {
-  final List<Ootd> _feed = List.of(MockContent.feed);
+  MockFeedRepository({List<Outfit>? outfits, this.pageSize = 3})
+    : _outfits = outfits ?? MockContent.outfits;
 
-  Future<void> _latency() =>
-      Future<void>.delayed(const Duration(milliseconds: 250));
-
-  @override
-  Future<List<Ootd>> feed() async {
-    await _latency();
-    return List.unmodifiable(_feed);
-  }
+  final List<Outfit> _outfits;
+  final int pageSize;
+  final signals = <(String, String)>[];
 
   @override
-  Future<List<Story>> stories() async {
-    await _latency();
-    return MockContent.stories;
-  }
-
-  @override
-  Future<Ootd?> ootd(String id) async {
-    for (final o in _feed) {
-      if (o.id == id) return o;
-    }
-    return null;
-  }
-
-  @override
-  Future<Ootd> setLiked(String id, {required bool liked}) async {
-    final i = _feed.indexWhere((o) => o.id == id);
-    final o = _feed[i];
-    if (o.isLiked == liked) return o;
-    return _feed[i] = o.copyWith(
-      isLiked: liked,
-      likes: o.likes + (liked ? 1 : -1),
-    );
-  }
-
-  @override
-  Future<Ootd> setSaved(String id, {required bool saved}) async {
-    final i = _feed.indexWhere((o) => o.id == id);
-    final o = _feed[i];
-    if (o.isSaved == saved) return o;
-    return _feed[i] = o.copyWith(
-      isSaved: saved,
-      saves: o.saves + (saved ? 1 : -1),
-    );
-  }
-
-  @override
-  Future<Ootd> publish(Ootd post) async {
-    await _latency();
-    _feed.insert(0, post);
-    return post;
-  }
-
-  @override
-  Future<void> sendReaction(String ootdId, String reaction) async {
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-  }
-
-  @override
-  Future<void> sendMessage(String ootdId, String message) async {
+  Future<FeedPage> page({String? cursor}) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
-  }
-
-  final Map<String, List<OotdComment>> _comments = {};
-
-  @override
-  Future<List<OotdComment>> comments(String ootdId) async {
-    await Future<void>.delayed(const Duration(milliseconds: 180));
-    return List.unmodifiable(
-      _comments.putIfAbsent(ootdId, () => MockContent.commentsFor(ootdId)),
+    final start = int.tryParse(cursor ?? '0') ?? 0;
+    final end = (start + pageSize).clamp(0, _outfits.length);
+    return FeedPage(
+      items: _outfits.sublist(start, end),
+      nextCursor: end < _outfits.length ? '$end' : null,
     );
   }
 
   @override
-  Future<OotdComment> addComment(String ootdId, String text) async {
-    final list = _comments.putIfAbsent(
-      ootdId,
-      () => MockContent.commentsFor(ootdId),
-    );
-    final c = OotdComment(
-      id: 'c_${DateTime.now().microsecondsSinceEpoch}',
-      handle: 'taylor_drip',
-      avatar: MockContent.myAvatar,
-      text: text,
-      ago: 'NOW',
-    );
-    list.insert(0, c);
-    final i = _feed.indexWhere((o) => o.id == ootdId);
-    if (i >= 0) _feed[i] = _feed[i].copyWith(comments: _feed[i].comments + 1);
-    return c;
-  }
-
-  @override
-  Future<void> recordShare(String ootdId) async {
-    final i = _feed.indexWhere((o) => o.id == ootdId);
-    if (i >= 0) _feed[i] = _feed[i].copyWith(shares: _feed[i].shares + 1);
+  Future<void> signal(String outfitId, String action, {int? dwellMs}) async {
+    signals.add((outfitId, action));
   }
 }

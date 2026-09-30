@@ -16,10 +16,8 @@ import '../../core/widgets/skeleton.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../data/mock/mock_weather.dart';
-import '../../data/models/ootd.dart';
 import '../../data/models/outfit.dart';
 import '../../routing/main_shell.dart';
-import '../activity/activity_controller.dart';
 import '../bag/bag_controller.dart';
 import '../bag/bag_sheet.dart';
 import '../outfits/outfit_controller.dart';
@@ -28,6 +26,9 @@ import 'feed_controller.dart';
 
 /// Home: brand + inbox → stories → today (weather, pick, Ask Taylor) →
 /// tools → today's drip (into the Scroll) → a staggered wall of fresh fits.
+///
+/// The fits are the first page of the Fashion Scroll feed (`GET /scroll`).
+/// Stories and the inbox are the social layer, which comes after the beta.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -43,14 +44,11 @@ class HomeScreen extends ConsumerWidget {
             child: feed.when(
               // Placeholders shaped like the real layout, not a spinner.
               loading: () => const _HomeSkeleton(),
-              error: (_, _) =>
-                  ErrorState(onRetry: () => ref.invalidate(feedProvider)),
-              data: (posts) => posts.isEmpty
-                  ? const EmptyState(
-                      title: 'NOTHING YET',
-                      message: 'Follow more creators to fill your feed.',
-                    )
-                  : _HomeBody(posts: posts),
+              error: (e, _) => ErrorState.from(
+                e,
+                onRetry: () => ref.invalidate(feedProvider),
+              ),
+              data: (state) => _HomeBody(fits: state.items),
             ),
           ),
         ],
@@ -68,53 +66,42 @@ void _openInScroll(BuildContext context, String id) {
 
 // ───────────────────────────────────────────────────────────────── header
 
-class _HomeHeader extends ConsumerWidget {
+class _HomeHeader extends StatelessWidget {
   const _HomeHeader();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final unread = ref
-        .watch(activityProvider)
-        .maybeWhen(
-          data: (items) => items.where((a) => !a.isRead).length,
-          orElse: () => 0,
-        );
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 6, 12, 6),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       child: SizedBox(
         height: 48,
-        child: Row(
+        child: Stack(
+          alignment: Alignment.center,
           children: [
             const DripWordmark(height: 30),
-            const Spacer(),
-            GlassIconButton(
-              semanticLabel: unread > 0
-                  ? 'Messages and notifications, $unread new'
-                  : 'Messages and notifications',
-              onTap: () => context.push('/activity'),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(
-                    Icons.mail_outline_rounded,
-                    size: 20,
-                    color: AppColors.cream,
-                  ),
-                  if (unread > 0)
-                    Positioned(
-                      right: -3,
-                      top: -3,
-                      child: Container(
-                        width: 9,
-                        height: 9,
-                        decoration: BoxDecoration(
-                          color: context.palette.accent,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: AppColors.base, width: 1.5),
-                        ),
-                      ),
-                    ),
-                ],
+            Align(
+              alignment: Alignment.centerLeft,
+              // Like Instagram: + opens the camera (swiping right does too).
+              child: GlassIconButton(
+                semanticLabel: 'Open the camera',
+                onTap: openCamera(context),
+                child: const Icon(
+                  Icons.add_rounded,
+                  size: 24,
+                  color: AppColors.cream,
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GlassIconButton(
+                semanticLabel: 'Messages and notifications',
+                onTap: () => showAfterBeta(context, 'Messages & notifications'),
+                child: const Icon(
+                  Icons.mail_outline_rounded,
+                  size: 20,
+                  color: AppColors.cream,
+                ),
               ),
             ),
           ],
@@ -124,50 +111,41 @@ class _HomeHeader extends ConsumerWidget {
   }
 }
 
+/// The app's camera: garment capture, full screen. Opened from the + on Home
+/// or by swiping right on Home.
+VoidCallback openCamera(BuildContext context) =>
+    () => context.push('/wardrobe/capture');
+
 // ──────────────────────────────────────────────────────────────────── body
 
 class _HomeBody extends ConsumerWidget {
-  const _HomeBody({required this.posts});
-  final List<Ootd> posts;
+  const _HomeBody({required this.fits});
+  final List<Outfit> fits;
 
   Future<void> _refresh(WidgetRef ref) async {
-    ref.invalidate(storiesProvider);
-    ref.invalidate(feedProvider);
+    ref
+      ..invalidate(storiesProvider)
+      ..invalidate(libraryProvider)
+      ..invalidate(feedProvider);
     await ref.read(feedProvider.future);
     Haptics.tick();
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final catalog = ref.watch(outfitCatalogProvider).value ?? const <Outfit>[];
-    final shownImages = {for (final p in posts) p.image};
-    final looks = [
-      for (final o in catalog)
-        if (!shownImages.contains(o.image)) o,
-    ].take(6).toList();
-    final todaysPick = catalog.isEmpty ? null : catalog.first;
+    final todaysPick = fits.isEmpty ? null : fits.first;
 
     final tiles = <_GridItem>[
-      for (final p in posts)
-        _GridItem(
-          key: p.id,
-          image: p.image,
-          title: p.title,
-          handle: p.creatorHandle,
-          score: p.score,
-          likes: p.likes,
-          heroId: p.id,
-          onTap: () => _openInScroll(context, p.id),
-        ),
-      for (final o in looks)
+      for (final o in fits)
         _GridItem(
           key: o.id,
           image: o.image,
           title: o.title,
           handle: o.creatorHandle,
           score: o.rate,
-          likes: null,
-          onTap: () => context.push('/outfit/${o.id}'),
+          price: o.price,
+          heroId: o.id,
+          onTap: () => _openInScroll(context, o.id),
         ),
     ];
 
@@ -197,7 +175,7 @@ class _HomeBody extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: _DripBar(posts: posts),
+              child: _DripBar(fits: fits),
             ),
           ),
           SliverToBoxAdapter(
@@ -214,7 +192,7 @@ class _HomeBody extends ConsumerWidget {
                   ),
                   const Spacer(),
                   Tap(
-                    onTap: () => context.push('/discover'),
+                    onTap: () => showAfterBeta(context, 'Search & Discover'),
                     semanticLabel: 'Search and discover fits',
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -238,7 +216,11 @@ class _HomeBody extends ConsumerWidget {
           ),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, bottom + 16),
-            sliver: SliverToBoxAdapter(child: _StaggeredGrid(tiles: tiles)),
+            sliver: SliverToBoxAdapter(
+              child: tiles.isEmpty
+                  ? const _NoFitsYet()
+                  : _StaggeredGrid(tiles: tiles),
+            ),
           ),
         ],
       ),
@@ -256,54 +238,21 @@ class _StoriesStrip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stories = ref.watch(storiesProvider);
+    // Stories from other people are out for v1 (they come back later); only
+    // the user's own circle stays.
     final me = ref.watch(myProfileProvider).value;
     return SizedBox(
       height: _height,
-      child: stories.when(
-        loading: () => const _StoriesSkeleton(),
-        error: (_, _) => Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 20),
-            child: Tap(
-              onTap: () => ref.invalidate(storiesProvider),
-              child: Text(
-                "COULDN'T LOAD STORIES · TAP TO RETRY",
-                style: AppText.mono(9, color: AppColors.red),
-              ),
-            ),
-          ),
-        ),
-        data: (list) => ListView.separated(
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-          itemCount: list.length + 1,
-          separatorBuilder: (_, _) => const SizedBox(width: 14),
-          itemBuilder: (context, i) {
-            if (i == 0) {
-              return _StoryBubble(
-                label: 'Your story',
-                avatar: me?.avatar,
-                isYou: true,
-                onTap: () => context.push('/create'),
-              );
-            }
-            final s = list[i - 1];
-            return _StoryBubble(
-              label: s.handle,
-              avatar: s.avatar,
-              unseen: s.unseen,
-              onTap: () {
-                final id = s.ootdId;
-                if (id == null) return;
-                ref.read(storiesProvider.notifier).markSeen(s.handle);
-                Haptics.tick();
-                context.push('/ootd/$id');
-              },
-            );
-          },
+          child: _StoryBubble(
+            label: 'Your story',
+            avatar: me?.avatar,
+            isYou: true,
+            onTap: () => showAfterBeta(context, 'Stories'),
+          ),
         ),
       ),
     );
@@ -318,13 +267,13 @@ class _StoryBubble extends StatelessWidget {
     required this.label,
     required this.avatar,
     required this.onTap,
-    this.unseen = false,
     this.isYou = false,
   });
 
   final String label;
   final String? avatar;
-  final bool unseen;
+  /// Story rings return with the social layer; none is unseen in v1.
+  bool get unseen => false;
   final bool isYou;
   final VoidCallback onTap;
 
@@ -374,7 +323,7 @@ class _StoryBubble extends StatelessWidget {
                         color: AppColors.base,
                       ),
                       child: ClipOval(
-                        child: avatar == null
+                        child: avatar == null || avatar!.isEmpty
                             ? ColoredBox(color: AppColors.elevated)
                             : DripImage(avatar!, logicalWidth: size),
                       ),
@@ -460,7 +409,14 @@ class _TodayCard extends StatelessWidget {
     final date =
         '${_weekdays[now.weekday - 1]} ${now.day} ${_months[now.month - 1]}';
     final corner = (26 * p.roundness).clamp(14.0, 30.0);
-    final swatches = [p.accent, p.secondary, p.wash, AppColors.cream];
+    // Four clearly different chips (the skin's wash is near-black, so it's
+    // lifted toward cream to stay visible on the card).
+    final swatches = [
+      p.accent,
+      p.secondary,
+      Color.lerp(p.wash, AppColors.cream, 0.55)!,
+      AppColors.cream,
+    ];
     final pick = outfit;
 
     final card = Glass(
@@ -497,8 +453,13 @@ class _TodayCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _SwatchStack(colors: swatches),
-                            const SizedBox(height: 6),
+                            // Scales down on narrow phones instead of overflowing.
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: _DayColours(colors: swatches),
+                            ),
+                            const SizedBox(height: 8),
                             Text(
                               '${weather.glyph}  ${weather.condition}'
                                   .toUpperCase(),
@@ -651,36 +612,53 @@ class _Portrait extends StatelessWidget {
   }
 }
 
-/// The theme's palette as overlapping paint chips.
-class _SwatchStack extends StatelessWidget {
-  const _SwatchStack({required this.colors});
+/// The day's colours: four separate, clearly sized chips with a caption,
+/// instead of tiny overlapping dots.
+class _DayColours extends StatelessWidget {
+  const _DayColours({required this.colors});
   final List<Color> colors;
 
-  static const _d = 12.0;
-  static const _step = 8.0;
+  static const _d = 24.0;
+  static const _gap = 8.0;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _d + _step * (colors.length - 1),
-      height: _d,
-      child: Stack(
-        children: [
-          for (var i = 0; i < colors.length; i++)
-            Positioned(
-              left: i * _step,
-              child: Container(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'COLOURS OF THE DAY',
+          style: AppText.mono(9, color: AppColors.muted, letterSpacing: 1.2),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < colors.length; i++) ...[
+              if (i > 0) const SizedBox(width: _gap),
+              Container(
                 width: _d,
                 height: _d,
                 decoration: BoxDecoration(
                   color: colors[i],
                   shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.base, width: 1.5),
+                  border: Border.all(
+                    color: AppColors.cream.withValues(alpha: 0.45),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colors[i].withValues(alpha: 0.35),
+                      blurRadius: 8,
+                    ),
+                  ],
                 ),
               ),
-            ),
-        ],
-      ),
+            ],
+          ],
+        ),
+      ],
     );
   }
 }
@@ -715,7 +693,7 @@ class _FeatureBlocks extends ConsumerWidget {
 
   void _open(BuildContext context, _Feature f) {
     if (f.soon) {
-      showDripToast(context, '${f.label} is coming soon');
+      showAfterBeta(context, f.label);
       return;
     }
     switch (f.index) {
@@ -733,7 +711,7 @@ class _FeatureBlocks extends ConsumerWidget {
       child: _FeatureTile(
         feature: f,
         meta: f.soon
-            ? 'SOON'
+            ? 'AFTER BETA'
             : f.index == '03'
             ? (inBag == 0 ? 'EMPTY' : '$inBag IN BAG')
             : 'YOUR PALETTE',
@@ -745,15 +723,15 @@ class _FeatureBlocks extends ConsumerWidget {
         Row(
           children: [
             tile(_features[0]),
-            const SizedBox(width: 10),
+            const SizedBox(width: 14),
             tile(_features[1]),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         Row(
           children: [
             tile(_features[2]),
-            const SizedBox(width: 10),
+            const SizedBox(width: 14),
             tile(_features[3]),
           ],
         ),
@@ -776,15 +754,35 @@ class _FeatureTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final soon = feature.soon;
+    final radius = (18 * p.roundness).clamp(12.0, 22.0);
+    // Visible, not loud: a lifted surface with a hairline edge. Live tiles get
+    // a soft accent edge and an accent-tinted icon chip; "after beta" tiles
+    // stay calm and neutral.
     return Tap(
       onTap: onTap,
-      semanticLabel: soon ? '${feature.label}, coming soon' : feature.label,
+      semanticLabel: soon
+          ? '${feature.label}, coming after beta'
+          : feature.label,
       scale: 0.97,
-      child: Glass(
-        radius: 18,
-        thickness: GlassThickness.thin,
-        shadow: false,
-        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.cream.withValues(alpha: soon ? 0.07 : 0.11),
+              AppColors.cream.withValues(alpha: soon ? 0.03 : 0.05),
+            ],
+          ),
+          border: Border.all(
+            color: soon
+                ? AppColors.cream.withValues(alpha: 0.12)
+                : p.accent.withValues(alpha: 0.38),
+            width: 1,
+          ),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -792,33 +790,47 @@ class _FeatureTile extends StatelessWidget {
               children: [
                 Text(
                   feature.index,
-                  style: AppText.mono(10, color: AppColors.dim),
+                  style: AppText.mono(10, color: AppColors.muted),
                 ),
                 const Spacer(),
-                Icon(
-                  feature.icon,
-                  size: 18,
-                  color: soon ? AppColors.muted : p.accent,
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: (soon ? AppColors.cream : p.accent).withValues(
+                      alpha: soon ? 0.08 : 0.16,
+                    ),
+                  ),
+                  child: Icon(
+                    feature.icon,
+                    size: 17,
+                    color: soon ? AppColors.muted : p.accent,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             Text(
               feature.label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppText.manrope(
-                13,
+                14,
                 weight: FontWeight.w700,
                 color: soon
-                    ? AppColors.cream.withValues(alpha: 0.7)
+                    ? AppColors.cream.withValues(alpha: 0.72)
                     : AppColors.cream,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 4),
             Text(
               meta,
-              style: AppText.mono(10, color: AppColors.dim, letterSpacing: 1),
+              style: AppText.mono(
+                10,
+                color: soon ? AppColors.dim : AppColors.muted,
+                letterSpacing: 1,
+              ),
             ),
           ],
         ),
@@ -832,16 +844,16 @@ class _FeatureTile extends StatelessWidget {
 /// Today's drip: how many new fits are waiting, shown as a fan of their
 /// photos, and the door into the Fashion Scroll where they play.
 class _DripBar extends StatelessWidget {
-  const _DripBar({required this.posts});
-  final List<Ootd> posts;
+  const _DripBar({required this.fits});
+  final List<Outfit> fits;
 
   static const _thumb = 34.0;
   static const _overlap = 12.0;
 
   @override
   Widget build(BuildContext context) {
-    final shown = posts.take(3).toList();
-    final count = posts.length;
+    final shown = fits.take(3).toList();
+    final count = fits.length;
     return Tap(
       onTap: () {
         TabDirection.value = 1;
@@ -899,7 +911,9 @@ class _DripBar extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '$count new fits from people you follow',
+                    count == 0
+                        ? 'Fresh fits are on their way'
+                        : '$count fresh ${count == 1 ? 'fit' : 'fits'} picked for you',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.manrope(13, weight: FontWeight.w600),
@@ -929,7 +943,7 @@ class _GridItem {
     required this.title,
     required this.handle,
     required this.score,
-    required this.likes,
+    required this.price,
     required this.onTap,
     this.heroId,
   });
@@ -939,7 +953,9 @@ class _GridItem {
   final String title;
   final String handle;
   final int score;
-  final int? likes;
+
+  /// INR total; 0 when unpriced.
+  final int price;
   final String? heroId;
   final VoidCallback onTap;
 }
@@ -1031,9 +1047,9 @@ class _GridTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.likes == null
-                      ? '@${item.handle}'
-                      : '@${item.handle}  ·  ♥ ${formatCount(item.likes!)}',
+                  item.price > 0
+                      ? '@${item.handle}  ·  ${formatPrice(item.price)}'
+                      : '@${item.handle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.mono(
@@ -1140,6 +1156,54 @@ class _HomeSkeleton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Home before the catalogue has any fits: says so, and offers the stylist.
+class _NoFitsYet extends StatelessWidget {
+  const _NoFitsYet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Glass(
+      radius: 20,
+      thickness: GlassThickness.thin,
+      shadow: false,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('FRESH FITS INCOMING', style: AppText.display(14)),
+          const SizedBox(height: 6),
+          Text(
+            "Drip's catalogue is still being stocked. Pull down to check "
+            'again. Meanwhile, digitize your own pieces in the Wardrobe.',
+            style: AppText.manrope(
+              13,
+              color: AppColors.muted,
+              lineHeight: 19,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Tap(
+            onTap: () => context.push('/wardrobe/capture'),
+            semanticLabel: 'Add a garment to your wardrobe',
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                'ADD A GARMENT  →',
+                style: AppText.mono(
+                  11,
+                  color: context.palette.accent,
+                  weight: FontWeight.w500,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

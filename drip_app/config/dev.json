@@ -1,0 +1,5 @@
+{
+  "API_BASE_URL": "https://drip-backend-production-dc7f.up.railway.app",
+  "SUPABASE_URL": "https://arpqhpnmuifqjtbqomrh.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_4nPyv0VB8QMqbVMniUwenw_mcLaaTzy"
+}

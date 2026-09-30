@@ -1,4 +1,8 @@
+import 'dart:typed_data';
+
+import 'package:drip/core/utils/format.dart';
 import 'package:drip/data/mock/mock_users.dart';
+import 'package:drip/data/models/account.dart';
 import 'package:drip/data/models/wardrobe.dart';
 import 'package:drip/data/repositories/local_store.dart';
 import 'package:drip/data/repositories/outfit_repository.dart';
@@ -40,13 +44,13 @@ void main() {
       expect(r.creatorHandles, contains('sofiamae'));
     });
 
-    test('save toggles the saved list', () async {
+    test('save toggles the saved list in the library', () async {
       final repo = MockOutfitRepository();
-      final before = (await repo.saved()).length;
+      final before = (await repo.library()).saved.length;
       await repo.setSaved('o_baggy', saved: true);
-      expect((await repo.saved()).length, before + 1);
+      expect((await repo.library()).saved.length, before + 1);
       await repo.setSaved('o_baggy', saved: false);
-      expect((await repo.saved()).length, before);
+      expect((await repo.library()).saved.length, before);
     });
   });
 
@@ -71,23 +75,42 @@ void main() {
   });
 
   group('WardrobeRepository', () {
-    test('add, update and remove', () async {
+    test('upload, retag and remove', () async {
       final repo = MockWardrobeRepository();
       final start = (await repo.items()).length;
-      const item = WardrobeItem(
-        id: 'w_test',
-        name: 'Test Coat',
-        category: 'Outerwear',
-        image: 'assets/images/wardrobe_crop_puff.jpg',
-        status: 'EXTRACTED',
+      final item = await repo.upload(
+        Uint8List.fromList([1]),
+        contentType: 'image/jpeg',
       );
-      await repo.add(item);
-      expect((await repo.items()).first.id, 'w_test');
-      await repo.update(item.copyWith(name: 'Renamed'));
-      expect((await repo.byId('w_test'))?.name, 'Renamed');
-      await repo.remove('w_test');
+      expect(item.isProcessing, isTrue);
+      final ready = (await repo.items()).first;
+      expect(ready.id, item.id);
+      expect(ready.isReady, isTrue);
+      await repo.update(item.id, slot: 'shoes');
+      expect((await repo.items()).first.category, 'Shoes');
+      await repo.remove(item.id);
       expect((await repo.items()).length, start);
-      expect(await repo.byId('w_test'), isNull);
+    });
+
+    test('API items read status, tags and a readable name', () {
+      final item = WardrobeItem.fromJson({
+        'id': 'w1',
+        'origin': 'saved',
+        'status': 'ready',
+        'garmentId': 'g1',
+        'image': 'https://cdn.test/w1.png',
+        'category': 'bottom',
+        'colour': 'navy',
+        'formality': 2,
+        'season': ['summer', 'all-season'],
+        'styleTags': ['streetwear'],
+        'addedAt': '2026-09-27T10:00:00Z',
+      });
+      expect(item.name, 'Navy Bottoms');
+      expect(item.category, 'Bottoms');
+      expect(item.status, 'SAVED FROM DRIP');
+      expect(item.tags, ['#STREETWEAR', 'SUMMER']);
+      expect(item.section, 'BOTTOMS');
     });
   });
 
@@ -105,6 +128,33 @@ void main() {
         everyElement(isIn(wardrobe.map((w) => w.name))),
       );
       expect(bp.drip, inInclusiveRange(90, 98));
+    });
+  });
+
+  group('formatting', () {
+    test('prices are rupees with Indian grouping', () {
+      expect(formatPrice(999), '₹999');
+      expect(formatPrice(1499), '₹1,499');
+      expect(formatPrice(149999), '₹1,49,999');
+      expect(formatPrice(12345678), '₹1,23,45,678');
+    });
+
+    test('/me parses credits, prefs and signed avatar URLs', () {
+      final a = Account.fromJson({
+        'user': {
+          'id': 'u1',
+          'onboarding_prefs': {'moods': ['y2k']},
+          'skin_tone': null,
+          'style_tags': ['y2k'],
+          'gen_credits_used': 1,
+          'created_at': '2026-09-27T10:00:00Z',
+        },
+        'genCreditsRemaining': 2,
+        'avatarUrls': ['https://storage.test/a.jpg?sig'],
+      });
+      expect(a.genCreditsRemaining, 2);
+      expect(a.hasAvatar, isTrue);
+      expect(a.onboardingPrefs['moods'], ['y2k']);
     });
   });
 }

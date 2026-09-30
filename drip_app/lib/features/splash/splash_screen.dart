@@ -51,14 +51,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   void _prewarm() {
     if (!ref.read(sessionProvider).signedIn) return;
     ref.read(storiesProvider);
-    ref.read(outfitCatalogProvider);
-    ref.read(feedProvider.future).then((posts) {
+    ref.read(libraryProvider);
+    ref.read(feedProvider.future).then((feed) {
       if (!mounted) return;
-      for (final p in posts.take(3)) {
-        precacheImage(dripImageProvider(p.image), context);
-      }
-      for (final p in posts.take(4)) {
-        precacheImage(dripImageProvider(p.creatorAvatar), context);
+      for (final o in feed.items.take(3)) {
+        if (o.image.isNotEmpty) {
+          precacheImage(dripImageProvider(o.image), context);
+        }
       }
     }, onError: (_) {});
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/api/api_client.dart';
 import '../motion.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text.dart';
@@ -221,6 +222,12 @@ class ErrorState extends StatelessWidget {
   final VoidCallback onRetry;
   final String message;
 
+  /// Uses the API's own wording when [error] came from it.
+  factory ErrorState.from(Object? error, {required VoidCallback onRetry}) =>
+      error is ApiException
+      ? ErrorState(onRetry: onRetry, message: error.friendly)
+      : ErrorState(onRetry: onRetry);
+
   @override
   Widget build(BuildContext context) {
     return EmptyState(
@@ -245,7 +252,7 @@ extension AsyncValueUi<T> on AsyncValue<T> {
       data: data,
       loading: () => LoadingState(label: loadingLabel),
       error: (e, _) => errorMessage == null
-          ? ErrorState(onRetry: onRetry)
+          ? ErrorState.from(e, onRetry: onRetry)
           : ErrorState(onRetry: onRetry, message: errorMessage),
     );
   }

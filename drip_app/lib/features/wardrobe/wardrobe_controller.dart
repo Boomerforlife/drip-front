@@ -1,24 +1,85 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/wardrobe.dart';
 import '../../data/providers.dart';
 
+/// The user's wardrobe. While an upload is being cut out and tagged on the
+/// server, the list refreshes itself every few seconds until it settles.
 class WardrobeController extends AsyncNotifier<List<WardrobeItem>> {
-  @override
-  Future<List<WardrobeItem>> build() =>
-      ref.watch(wardrobeRepositoryProvider).items();
+  static const pollEvery = Duration(seconds: 4);
 
-  Future<void> add(WardrobeItem item) async {
-    await ref.read(wardrobeRepositoryProvider).add(item);
-    state = AsyncData([item, ...?state.value]);
+  /// Stop polling after this long; a pull-to-refresh or revisit picks it up.
+  static const pollFor = Duration(minutes: 5);
+
+  /// Upload photos are 1-hour signed URLs: refetch before they expire.
+  static const freshFor = Duration(minutes: 45);
+
+  Timer? _poll;
+  DateTime? _pollingSince;
+  DateTime? _fetchedAt;
+
+  @override
+  Future<List<WardrobeItem>> build() async {
+    ref.onDispose(() => _poll?.cancel());
+    final items = await ref.watch(wardrobeRepositoryProvider).items();
+    _fetchedAt = DateTime.now();
+    _schedulePoll(items);
+    return items;
   }
 
-  Future<void> edit(WardrobeItem item) async {
-    await ref.read(wardrobeRepositoryProvider).update(item);
-    state = AsyncData([
-      for (final i in state.value ?? const <WardrobeItem>[])
-        i.id == item.id ? item : i,
-    ]);
+  /// Refetches if the image links may have expired (call when showing it).
+  void refreshIfStale() {
+    final at = _fetchedAt;
+    if (at != null && DateTime.now().difference(at) > freshFor) _refresh();
+  }
+
+  void _schedulePoll(List<WardrobeItem> items) {
+    _poll?.cancel();
+    if (!items.any((i) => i.isProcessing)) {
+      _pollingSince = null;
+      return;
+    }
+    _pollingSince ??= DateTime.now();
+    if (DateTime.now().difference(_pollingSince!) > pollFor) return;
+    _poll = Timer(pollEvery, _refresh);
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final items = await ref.read(wardrobeRepositoryProvider).items();
+      if (!ref.mounted) return;
+      _fetchedAt = DateTime.now();
+      state = AsyncData(items);
+      _schedulePoll(items);
+    } catch (_) {
+      // Keep what's on screen; try again on the next tick.
+      if (ref.mounted) _schedulePoll(state.value ?? const []);
+    }
+  }
+
+  /// Uploads a garment photo. It appears straight away as "processing".
+  Future<WardrobeItem> upload(
+    Uint8List bytes, {
+    required String contentType,
+  }) async {
+    final item = await ref
+        .read(wardrobeRepositoryProvider)
+        .upload(bytes, contentType: contentType);
+    final next = [item, ...?state.value];
+    state = AsyncData(next);
+    _schedulePoll(next);
+    return item;
+  }
+
+  /// Corrects an item's category ([slot]) or colour.
+  Future<void> retag(String id, {String? slot, String? colour}) async {
+    await ref
+        .read(wardrobeRepositoryProvider)
+        .update(id, slot: slot, colour: colour);
+    await _refresh();
   }
 
   Future<void> remove(String id) async {
@@ -49,32 +110,31 @@ final rotationProvider = FutureProvider<List<String>>(
   (ref) => ref.watch(wardrobeRepositoryProvider).rotationIds(),
 );
 
-/// State of the garment-capture flow.
+/// The garment-capture flow: a picked photo, then its upload.
 class CaptureState {
-  const CaptureState({this.imagePath, this.detection = const AsyncData(null)});
+  const CaptureState({this.imagePath, this.upload = const AsyncData(null)});
   final String? imagePath;
-  final AsyncValue<GarmentDetection?> detection;
-
-  CaptureState copyWith({
-    String? imagePath,
-    AsyncValue<GarmentDetection?>? detection,
-  }) => CaptureState(
-    imagePath: imagePath ?? this.imagePath,
-    detection: detection ?? this.detection,
-  );
+  final AsyncValue<WardrobeItem?> upload;
 }
 
 class CaptureController extends Notifier<CaptureState> {
   @override
   CaptureState build() => const CaptureState();
 
-  Future<void> process(String imagePath) async {
-    state = CaptureState(imagePath: imagePath, detection: const AsyncLoading());
+  void pick(String imagePath) => state = CaptureState(imagePath: imagePath);
+
+  /// Sends the photo. The item then processes in the background.
+  Future<WardrobeItem?> send(Uint8List bytes, String contentType) async {
+    final path = state.imagePath;
+    state = CaptureState(imagePath: path, upload: const AsyncLoading());
     final result = await AsyncValue.guard(
-      () => ref.read(wardrobeRepositoryProvider).detect(imagePath),
+      () => ref
+          .read(wardrobeProvider.notifier)
+          .upload(bytes, contentType: contentType),
     );
-    if (!ref.mounted) return;
-    state = CaptureState(imagePath: imagePath, detection: result);
+    if (!ref.mounted) return null;
+    state = CaptureState(imagePath: path, upload: result);
+    return result.value;
   }
 
   void reset() => state = const CaptureState();
@@ -84,3 +144,14 @@ final captureProvider =
     NotifierProvider.autoDispose<CaptureController, CaptureState>(
       CaptureController.new,
     );
+
+/// `photo.jpg` → `image/jpeg`. Null for types the API won't take.
+String? imageContentType(String path) {
+  final ext = path.split('.').last.toLowerCase();
+  return switch (ext) {
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+    _ => null,
+  };
+}

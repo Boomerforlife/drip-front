@@ -14,6 +14,7 @@ import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/api/api_client.dart';
 import '../../data/models/settings.dart';
 import '../../routing/main_shell.dart';
 import '../session/reset_app_state.dart';
@@ -24,218 +25,31 @@ import 'settings_controller.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  static final _emailRe = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-  static final _userRe = RegExp(r'^[a-z0-9_.]{3,20}$');
-
-  Future<String?> _textSheet(
-    BuildContext context, {
-    required String title,
-    required String initial,
-    required String? Function(String) validate,
-    String hint = '',
-    TextInputType? keyboard,
-    String prefix = '',
-  }) {
-    final c = TextEditingController(text: initial);
-    String? error;
-    return showDripSheet<String>(
+  /// Deleting the account is permanent (the backend removes every row and
+  /// private file), so it asks twice in plain words.
+  Future<void> _deleteAccount(BuildContext context, WidgetRef ref) async {
+    final ok = await showDripConfirm(
       context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) {
-          void submit() {
-            final v = c.text.trim();
-            final e = validate(v);
-            if (e != null) {
-              setSheet(() => error = e);
-              return;
-            }
-            Navigator.of(ctx).pop(v);
-          }
-
-          return SheetContent(
-            title: title,
-            children: [
-              DripField(
-                controller: c,
-                hint: hint,
-                radius: 14,
-                autofocus: true,
-                keyboardType: keyboard,
-                errorText: error,
-                onSubmitted: (_) => submit(),
-                leading: prefix.isEmpty
-                    ? null
-                    : Text(
-                        prefix,
-                        style: AppText.mono(13, color: AppColors.cyan),
-                      ),
-              ),
-              const SizedBox(height: 14),
-              AppButton(label: 'SAVE', height: 44, onPressed: submit),
-            ],
-          );
-        },
-      ),
-    ).whenComplete(c.dispose);
-  }
-
-  Future<T?> _pick<T>(
-    BuildContext context, {
-    required String title,
-    required List<T> options,
-    required T current,
-    required String Function(T) label,
-  }) {
-    return showDripSheet<T>(
-      context,
-      builder: (ctx) => SheetContent(
-        title: title,
-        children: [
-          for (final o in options)
-            Tap(
-              onTap: () => Navigator.of(ctx).pop(o),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: AppColors.elevated)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        label(o),
-                        style: AppText.manrope(14, weight: FontWeight.w500),
-                      ),
-                    ),
-                    if (o == current)
-                      Text(
-                        '✓',
-                        style: AppText.mono(14, color: ctx.palette.accent),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+      title: 'DELETE YOUR ACCOUNT?',
+      message:
+          'This permanently deletes your Drip account: your wardrobe photos, '
+          'saved and liked fits, studio fits and Gen renders. It can\'t be '
+          'undone.',
+      confirmLabel: 'DELETE FOREVER',
+      destructive: true,
     );
-  }
-
-  Future<void> _changePassword(BuildContext context) async {
-    final current = TextEditingController();
-    final next = TextEditingController();
-    final confirm = TextEditingController();
-    String? error;
-    final ok = await showDripSheet<bool>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => SheetContent(
-          title: 'CHANGE PASSWORD',
-          children: [
-            DripField(
-              controller: current,
-              hint: 'Current password',
-              radius: 14,
-              obscureText: true,
-            ),
-            const SizedBox(height: 10),
-            DripField(
-              controller: next,
-              hint: 'New password (8+ characters)',
-              radius: 14,
-              obscureText: true,
-            ),
-            const SizedBox(height: 10),
-            DripField(
-              controller: confirm,
-              hint: 'Confirm new password',
-              radius: 14,
-              obscureText: true,
-              errorText: error,
-            ),
-            const SizedBox(height: 14),
-            AppButton(
-              label: 'UPDATE PASSWORD',
-              height: 44,
-              onPressed: () {
-                String? e;
-                if (current.text.isEmpty) {
-                  e = 'Enter your current password';
-                } else if (next.text.length < 8) {
-                  e = 'New password needs at least 8 characters';
-                } else if (next.text != confirm.text) {
-                  e = 'Passwords don\'t match';
-                } else if (next.text == current.text) {
-                  e = 'Choose a different password';
-                }
-                if (e != null) {
-                  setSheet(() => error = e);
-                  return;
-                }
-                Navigator.of(ctx).pop(true);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-    current.dispose();
-    next.dispose();
-    confirm.dispose();
-    if (ok == true && context.mounted) {
-      showDripToast(context, 'Password saved — applies once accounts go live');
+    if (!ok || !context.mounted) return;
+    try {
+      await ref.read(sessionProvider.notifier).deleteAccount();
+    } on ApiException catch (e) {
+      if (context.mounted) showDripToast(context, e.friendly);
+      return;
     }
-  }
-
-  Future<void> _connected(BuildContext context) {
-    return showDripSheet<void>(
-      context,
-      builder: (ctx) => Consumer(
-        builder: (ctx, ref, _) {
-          final connected = ref.watch(connectedAccountsProvider);
-          return SheetContent(
-            title: 'CONNECTED ACCOUNTS',
-            children: [
-              for (final name in const ['Discord', 'Spotify', 'Instagram'])
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: AppColors.elevated),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: AppText.manrope(14, weight: FontWeight.w500),
-                        ),
-                      ),
-                      Text(
-                        connected.contains(name) ? 'LINKED' : 'NOT LINKED',
-                        style: AppText.mono(
-                          9,
-                          color: connected.contains(name)
-                              ? AppColors.cyan
-                              : AppColors.muted,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      DripSwitch(
-                        value: connected.contains(name),
-                        onChanged: (_) => ref
-                            .read(connectedAccountsProvider.notifier)
-                            .toggle(name),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
-    );
+    resetAppState(ref);
+    if (context.mounted) {
+      showDripToast(context, 'Your account has been deleted');
+      context.go('/welcome');
+    }
   }
 
   @override
@@ -243,7 +57,7 @@ class SettingsScreen extends ConsumerWidget {
     final s = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
     final me = ref.watch(myProfileProvider).value;
-    final connected = ref.watch(connectedAccountsProvider).toList()..sort();
+    final email = ref.watch(sessionProvider.select((s) => s.user?.email));
 
     Widget row(
       String label, {
@@ -300,7 +114,7 @@ class SettingsScreen extends ConsumerWidget {
                                 ),
                               ),
                               child: ClipOval(
-                                child: me == null
+                                child: me == null || me.avatar.isEmpty
                                     ? ColoredBox(color: AppColors.elevated)
                                     : DripImage(me.avatar),
                               ),
@@ -311,12 +125,14 @@ class SettingsScreen extends ConsumerWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    me?.name ?? 'Taylor Vance',
+                                    me?.name ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: AppText.display(14),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Verified AI Stylist',
+                                    'DRIP BETA MEMBER',
                                     style: AppText.mono(
                                       11,
                                       color: AppColors.cyan,
@@ -331,54 +147,18 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     row(
                       'Username',
-                      value: '@${s.username}',
-                      onTap: () async {
-                        final v = await _textSheet(
-                          context,
-                          title: 'USERNAME',
-                          initial: s.username,
-                          hint: 'taylor_drip',
-                          prefix: '@',
-                          validate: (v) => _userRe.hasMatch(v) ? null : '3–20 characters: lowercase letters, numbers, . or _',
-                        );
-                        if (v != null) {
-                          await notifier.setUsername(v);
-                          await ref
-                              .read(myProfileProvider.notifier)
-                              .saveProfile(handle: v);
-                          if (context.mounted) {
-                            showDripToast(context, 'Username updated');
-                          }
-                        }
-                      },
+                      value: me == null ? '' : '@${me.handle}',
+                      onTap: () => showAfterBeta(context, 'Custom usernames'),
                     ),
                     row(
                       'Email',
-                      value: s.email,
-                      onTap: () async {
-                        final v = await _textSheet(
-                          context,
-                          title: 'EMAIL',
-                          initial: s.email,
-                          hint: 'you@drip.design',
-                          keyboard: TextInputType.emailAddress,
-                          validate: (v) => _emailRe.hasMatch(v)
-                              ? null
-                              : 'Enter a valid email address',
-                        );
-                        if (v != null) {
-                          await notifier.setEmail(v);
-                          if (context.mounted) {
-                            showDripToast(context, 'Email updated');
-                          }
-                        }
-                      },
+                      value: email ?? '',
+                      onTap: () => showDripToast(
+                        context,
+                        'Your email comes from your Google account',
+                      ),
                     ),
-                    row(
-                      'Change Password',
-                      last: true,
-                      onTap: () => _changePassword(context),
-                    ),
+                    row('Signed in with', value: 'Google', last: true),
                   ],
                 ),
                 const _Section('02 · PRIVACY'),
@@ -388,37 +168,20 @@ class SettingsScreen extends ConsumerWidget {
                       'Private Account',
                       trailing: DripSwitch(
                         value: s.privateAccount,
-                        onChanged: notifier.setPrivate,
+                        onChanged: (_) =>
+                            showAfterBeta(context, 'Private accounts'),
                       ),
                     ),
                     row(
                       'Who Can Interact',
                       value: s.whoCanInteract.label,
-                      onTap: () async {
-                        final v = await _pick(
-                          context,
-                          title: 'WHO CAN INTERACT',
-                          options: InteractAudience.values,
-                          current: s.whoCanInteract,
-                          label: (o) => o.label,
-                        );
-                        if (v != null) await notifier.setWhoCanInteract(v);
-                      },
+                      onTap: () => showAfterBeta(context, 'Interaction controls'),
                     ),
                     row(
                       'OOTD Visibility',
                       value: s.ootdVisibility.label,
                       last: true,
-                      onTap: () async {
-                        final v = await _pick(
-                          context,
-                          title: 'OOTD VISIBILITY',
-                          options: OotdVisibility.values,
-                          current: s.ootdVisibility,
-                          label: (o) => o.label,
-                        );
-                        if (v != null) await notifier.setOotdVisibility(v);
-                      },
+                      onTap: () => showAfterBeta(context, 'OOTD visibility'),
                     ),
                   ],
                 ),
@@ -482,9 +245,9 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                     row(
                       'Connected Accounts',
-                      value: connected.isEmpty ? 'None' : connected.join(', '),
+                      value: 'After beta',
                       last: true,
-                      onTap: () => _connected(context),
+                      onTap: () => showAfterBeta(context, 'Connected accounts'),
                     ),
                   ],
                 ),
@@ -524,7 +287,7 @@ class SettingsScreen extends ConsumerWidget {
                             title: 'PRIVACY & TERMS',
                             children: [
                               Text(
-                                'Your fits, wardrobe and searches stay on your account. Private accounts only share content with approved followers. You can delete your data at any time from this screen.',
+                                'Your saved fits, wardrobe photos, studio fits and Gen renders live on your Drip account. Wardrobe photos, selfies and renders are private to you. You can delete your account, and everything in it, at any time from this screen.',
                                 style: AppText.manrope(
                                   13,
                                   color: AppColors.muted,
@@ -557,6 +320,23 @@ class SettingsScreen extends ConsumerWidget {
                       resetAppState(ref);
                       if (context.mounted) context.go('/welcome');
                     },
+                  ),
+                ),
+                Center(
+                  child: Tap(
+                    onTap: () => _deleteAccount(context, ref),
+                    semanticLabel: 'Delete your account',
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        'DELETE ACCOUNT',
+                        style: AppText.mono(
+                          10,
+                          color: AppColors.red,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],

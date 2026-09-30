@@ -21,8 +21,35 @@ String formatThousands(int n) {
   return buf.toString();
 }
 
-/// `189` → `$189.00`.
-String formatPrice(num v) => '\$${v.toStringAsFixed(2)}';
+/// Prices are INR for the beta (the API sends `{ amount, currency: "INR" }`),
+/// grouped the Indian way: `1499` → `₹1,499`, `149999` → `₹1,49,999`.
+String formatPrice(num v) => '₹${_indianGrouping(v.round())}';
 
-/// `189` → `$189`.
-String formatPriceShort(num v) => '\$${v.round()}';
+/// Same as [formatPrice]; kept for call sites that want the compact form.
+String formatPriceShort(num v) => formatPrice(v);
+
+String _indianGrouping(int n) {
+  if (n < 0) return '-${_indianGrouping(-n)}';
+  final s = n.toString();
+  if (s.length <= 3) return s;
+  final last3 = s.substring(s.length - 3);
+  var rest = s.substring(0, s.length - 3);
+  final parts = <String>[];
+  while (rest.length > 2) {
+    parts.insert(0, rest.substring(rest.length - 2));
+    rest = rest.substring(0, rest.length - 2);
+  }
+  if (rest.isNotEmpty) parts.insert(0, rest);
+  return '${parts.join(',')},$last3';
+}
+
+/// "2h ago"-style label for an ISO-8601 timestamp from the API.
+String formatAgo(DateTime? t, {DateTime? now}) {
+  if (t == null) return '';
+  final d = (now ?? DateTime.now()).difference(t.toLocal());
+  if (d.inMinutes < 1) return 'NOW';
+  if (d.inHours < 1) return '${d.inMinutes}M AGO';
+  if (d.inDays < 1) return '${d.inHours}H AGO';
+  if (d.inDays < 7) return '${d.inDays}D AGO';
+  return '${(d.inDays / 7).floor()}W AGO';
+}

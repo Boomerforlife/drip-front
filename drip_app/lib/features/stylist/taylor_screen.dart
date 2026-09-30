@@ -13,7 +13,9 @@ import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/api/api_client.dart';
 import '../../data/mock/mock_content.dart';
+import '../../data/repositories/stylist_repository.dart';
 import 'stylist_controller.dart';
 
 class TaylorScreen extends ConsumerWidget {
@@ -23,6 +25,9 @@ class TaylorScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(stylistProvider);
     final controller = ref.read(stylistProvider.notifier);
+    final options = ref.watch(stylistOptionsProvider).value;
+    final occasions = options?.$1 ?? const <String>[];
+    final vibes = options?.$2 ?? const <String>[];
     final loading = s.blueprint.isLoading;
     final bottom = math.max(MediaQuery.paddingOf(context).bottom, 8.0);
 
@@ -31,9 +36,18 @@ class TaylorScreen extends ConsumerWidget {
       if (!context.mounted) return;
       if (result != null) {
         context.push('/stylist/result');
-      } else if (ref.read(stylistProvider).blueprint.hasError) {
-        showDripToast(context, 'Taylor is offline — try again');
+        return;
       }
+      final error = ref.read(stylistProvider).blueprint.error;
+      if (error == null) return;
+      showDripToast(
+        context,
+        error is NoFitsYet
+            ? "Taylor's rail is still being stocked. Try again soon."
+            : error is ApiException
+            ? error.friendly
+            : 'Taylor is offline — try again',
+      );
     }
 
     return Scaffold(
@@ -113,7 +127,7 @@ class TaylorScreen extends ConsumerWidget {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        for (final o in MockContent.occasions)
+                        for (final o in occasions)
                           _Chip(
                             label: o,
                             selected: s.occasion == o,
@@ -131,7 +145,7 @@ class TaylorScreen extends ConsumerWidget {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        for (final v in MockContent.attireVibes)
+                        for (final v in vibes)
                           _Chip(
                             label: v,
                             selected: s.vibe == v,

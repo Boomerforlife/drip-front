@@ -16,19 +16,19 @@ import '../../core/widgets/overlays.dart';
 import '../../core/widgets/skeleton.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
-import '../../data/mock/mock_users.dart';
-import '../../data/models/ootd.dart';
 import '../../data/models/outfit.dart';
 import '../home/feed_controller.dart';
+import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
-import '../social/social_controller.dart';
-import 'scroll_sheets.dart';
 
-/// The Fashion Scroll: full-screen, one fit at a time, snapping vertically —
-/// and infinite, exactly like Instagram Reels: once you reach the last fit it
-/// loops seamlessly back to the first, forever, in both scroll directions.
+/// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
 ///
-/// Only the visible page is built (`PageView.builder`), the next image is
+/// Fits come a page at a time from `GET /scroll` (ranked, not seen before);
+/// the next page loads as you near the end, and the last page is a
+/// "caught up" card. Each card reports how long it was on screen (`open` or
+/// `skip`), which trains the ranking.
+///
+/// Only the visible page is built (`PageView.builder`), the next images are
 /// pre-cached, and everything laid over the photo is either a gradient or a
 /// small glass element, so the photograph stays the hero.
 class FashionScrollScreen extends ConsumerStatefulWidget {
@@ -43,33 +43,75 @@ class FashionScrollScreen extends ConsumerStatefulWidget {
 }
 
 class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
-  /// Large offset so the loop can also scroll "backward" past the first
-  /// post for a long time before it would ever hit page 0.
-  static const _loopOffset = 100000;
+  /// A card viewed at least this long counts as `open`, else `skip`.
+  static const _openAfter = Duration(milliseconds: 2000);
+
+  /// Start loading the next page this many cards before the end.
+  static const _prefetch = 3;
 
   PageController? _pc;
   int _page = 0;
+  String? _viewingId;
+  final _viewing = Stopwatch();
+
+  /// Held so the last card can still be reported from [dispose], when `ref`
+  /// can no longer be used.
+  FeedController? _feed;
 
   @override
   void dispose() {
+    _reportView();
     _pc?.dispose();
     super.dispose();
   }
 
-  PageController _controllerFor(List<Ootd> posts) {
+  PageController _controllerFor(List<Outfit> items) {
     if (_pc != null) return _pc!;
     final start = widget.startId == null
         ? 0
-        : posts
-              .indexWhere((p) => p.id == widget.startId)
-              .clamp(0, posts.length);
-    _page = _loopOffset * posts.length + start;
+        : items.indexWhere((o) => o.id == widget.startId).clamp(0, items.length);
+    _page = start;
     return _pc = PageController(initialPage: _page);
   }
 
-  void _precache(List<Ootd> posts, int i) {
+  void _precache(List<Outfit> items, int i) {
     for (final j in [i + 1, i + 2]) {
-      precacheImage(dripImageProvider(posts[j % posts.length].image), context);
+      if (j < items.length && items[j].image.isNotEmpty) {
+        precacheImage(dripImageProvider(items[j].image), context);
+      }
+    }
+  }
+
+  /// Starts timing the card now on screen (reporting the previous one).
+  void _startViewing(List<Outfit> items, int i) {
+    final id = i < items.length ? items[i].id : null;
+    if (id == _viewingId) return;
+    _reportView();
+    _feed = ref.read(feedProvider.notifier);
+    _viewingId = id;
+    _viewing
+      ..reset()
+      ..start();
+  }
+
+  void _reportView() {
+    final id = _viewingId;
+    if (id == null) return;
+    final dwell = _viewing.elapsed;
+    _viewingId = null;
+    _feed?.signal(
+      id,
+      dwell >= _openAfter ? 'open' : 'skip',
+      dwellMs: dwell.inMilliseconds,
+    );
+  }
+
+  void _onPage(FeedState feed, int i) {
+    setState(() => _page = i);
+    _precache(feed.items, i);
+    _startViewing(feed.items, i);
+    if (i >= feed.items.length - _prefetch) {
+      ref.read(feedProvider.notifier).loadMore();
     }
   }
 
@@ -79,6 +121,11 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
     } else {
       context.go('/home');
     }
+  }
+
+  void _toTop() {
+    Haptics.tick();
+    _pc?.animateToPage(0, duration: Motion.page, curve: Motion.out);
   }
 
   @override
@@ -92,17 +139,25 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
       },
       child: feed.when(
         loading: () => const _ReelSkeleton(),
-        error: (_, _) =>
-            ErrorState(onRetry: () => ref.invalidate(feedProvider)),
-        data: (posts) {
-          if (posts.isEmpty) {
-            return const EmptyState(
-              title: 'NOTHING TO SCROLL',
-              message: 'Follow creators to fill your Fashion Scroll.',
+        error: (e, _) =>
+            ErrorState.from(e, onRetry: () => ref.invalidate(feedProvider)),
+        data: (state) {
+          final items = state.items;
+          if (items.isEmpty) {
+            return EmptyState(
+              title: 'FRESH FITS INCOMING',
+              message:
+                  "Drip's catalogue is still being stocked. New fits land "
+                  "here as soon as they're ready.",
+              actionLabel: 'CHECK AGAIN',
+              onAction: () => ref.invalidate(feedProvider),
             );
           }
-          final pc = _controllerFor(posts);
-          _precache(posts, _page);
+          final pc = _controllerFor(items);
+          if (_viewingId == null && _page < items.length) {
+            _startViewing(items, _page);
+            _precache(items, _page);
+          }
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -113,24 +168,25 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
                 physics: const PageScrollPhysics(
                   parent: ClampingScrollPhysics(),
                 ),
-                // No itemCount: unbounded in both directions, so the reel
-                // never runs out — it just keeps wrapping through `posts`.
-                onPageChanged: (i) {
-                  setState(() => _page = i);
-                  _precache(posts, i);
-                },
-                itemBuilder: (context, i) => _ReelPage(
-                  post: posts[i % posts.length],
-                  active: i == _page,
-                ),
+                itemCount: items.length + 1,
+                onPageChanged: (i) => _onPage(state, i),
+                itemBuilder: (context, i) => i < items.length
+                    ? _ReelPage(outfit: items[i], active: i == _page)
+                    : _FeedTail(
+                        state: state,
+                        onRetry: () =>
+                            ref.read(feedProvider.notifier).loadMore(),
+                        onTop: _toTop,
+                      ),
               ),
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
                 child: _TopChrome(
-                  index: _page % posts.length,
-                  count: posts.length,
+                  index: _page.clamp(0, items.length - 1),
+                  count: items.length,
+                  more: state.hasMore,
                   onBack: context.canPop() ? _back : null,
                 ),
               ),
@@ -142,17 +198,52 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
   }
 }
 
+/// The page after the last fit: loading the next page, a retry, or the end.
+class _FeedTail extends StatelessWidget {
+  const _FeedTail({
+    required this.state,
+    required this.onRetry,
+    required this.onTop,
+  });
+  final FeedState state;
+  final VoidCallback onRetry;
+  final VoidCallback onTop;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.hasMore && !state.loadMoreFailed) {
+      return const _ReelSkeleton();
+    }
+    if (state.loadMoreFailed) {
+      return ErrorState(
+        message: "Couldn't load more fits.",
+        onRetry: onRetry,
+      );
+    }
+    return EmptyState(
+      title: "YOU'RE ALL CAUGHT UP",
+      message: "That's every fresh fit for now. More drop soon.",
+      actionLabel: 'BACK TO THE TOP',
+      onAction: onTop,
+    );
+  }
+}
+
 // ────────────────────────────────────────────────────────────────── chrome
 
 class _TopChrome extends StatelessWidget {
   const _TopChrome({
     required this.index,
     required this.count,
+    required this.more,
     required this.onBack,
   });
 
   final int index;
   final int count;
+
+  /// More pages to come: the count is a floor, not the total.
+  final bool more;
   final VoidCallback? onBack;
 
   @override
@@ -203,7 +294,7 @@ class _TopChrome extends StatelessWidget {
               shadow: false,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               child: Text(
-                '${index + 1} / $count',
+                '${index + 1} / $count${more ? '+' : ''}',
                 style: AppText.mono(10, color: AppColors.cream),
               ),
             ),
@@ -217,8 +308,8 @@ class _TopChrome extends StatelessWidget {
 // ──────────────────────────────────────────────────────────────────── page
 
 class _ReelPage extends ConsumerStatefulWidget {
-  const _ReelPage({required this.post, required this.active});
-  final Ootd post;
+  const _ReelPage({required this.outfit, required this.active});
+  final Outfit outfit;
   final bool active;
 
   @override
@@ -229,9 +320,9 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   int _burst = 0;
 
   void _doubleTapLike() {
-    final post = widget.post;
-    if (!post.isLiked) {
-      ref.read(feedProvider.notifier).toggleLike(post.id);
+    final id = widget.outfit.id;
+    if (!ref.read(fitMarksProvider).isLiked(id)) {
+      toggleLikeWithToast(context, ref, id);
     }
     Haptics.thump();
     setState(() => _burst++);
@@ -239,7 +330,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
 
   @override
   Widget build(BuildContext context) {
-    final post = widget.post;
+    final outfit = widget.outfit;
     // Includes the floating nav's height (the shell adds it).
     final bottom = MediaQuery.paddingOf(context).bottom;
 
@@ -250,10 +341,13 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
         fit: StackFit.expand,
         children: [
           FitHero(
-            ootdId: post.id,
+            ootdId: outfit.id,
             radius: 28,
             child: SizedBox.expand(
-              child: DripImage(post.image, alignment: Alignment.topCenter),
+              child: ColoredBox(
+                color: AppColors.base,
+                child: DripImage(outfit.image, alignment: Alignment.topCenter),
+              ),
             ),
           ),
           // Top scrim keeps the chrome legible on bright photos.
@@ -297,12 +391,12 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
             left: 16,
             right: 84,
             bottom: bottom + 6,
-            child: _Description(post: post),
+            child: _Description(outfit: outfit),
           ),
           Positioned(
             right: 8,
             bottom: bottom + 10,
-            child: _ActionRail(post: post),
+            child: _ActionRail(outfit: outfit),
           ),
           Center(child: LikeBurst(trigger: _burst, size: 110)),
         ],
@@ -313,159 +407,80 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
 
 // ─────────────────────────────────────────────────────────── description
 
-/// Creator, caption, style and shop details, written like part of the post
-/// rather than an analytics panel: stats sit in one quiet line.
-class _Description extends ConsumerStatefulWidget {
-  const _Description({required this.post});
-  final Ootd post;
-
-  @override
-  ConsumerState<_Description> createState() => _DescriptionState();
-}
-
-class _DescriptionState extends ConsumerState<_Description> {
-  bool _expanded = false;
+/// Who it's from, what it is, and what it costs, written like part of the
+/// post rather than an analytics panel.
+class _Description extends StatelessWidget {
+  const _Description({required this.outfit});
+  final Outfit outfit;
 
   @override
   Widget build(BuildContext context) {
-    final post = widget.post;
     final p = context.palette;
-    final outfit = post.outfitId == null
-        ? null
-        : ref.watch(outfitProvider(post.outfitId!));
-    final following = ref.watch(followingSetProvider).value ?? const {};
-    final isMe = post.creatorHandle == MockUsers.meHandle;
-    final isFollowing = following.contains(post.creatorHandle);
-    final caption = post.caption;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Creator
+        // Curated by Drip (creator posts come after the beta).
         Row(
           children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.base,
+                border: Border.all(color: p.accent, width: 1.5),
+              ),
+              child: Text('d.', style: AppText.fredoka(17)),
+            ),
+            const SizedBox(width: 10),
             Flexible(
-              child: Tap(
-                onTap: () => context.push('/u/${post.creatorHandle}'),
-                semanticLabel: 'Open @${post.creatorHandle} profile',
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: p.accent, width: 1.5),
-                      ),
-                      child: ClipOval(child: DripImage(post.creatorAvatar)),
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '@${post.creatorHandle}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.manrope(14, weight: FontWeight.w800),
-                          ),
-                          Text(
-                            post.postedAgo,
-                            style: AppText.mono(9, color: AppColors.muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '@drip',
+                    style: AppText.manrope(14, weight: FontWeight.w800),
+                  ),
+                  Text(
+                    outfit.isCollage ? 'CURATED FLAT-LAY' : 'CURATED FIT',
+                    style: AppText.mono(9, color: AppColors.muted),
+                  ),
+                ],
               ),
             ),
-            if (!isMe) ...[
-              const SizedBox(width: 12),
-              _FollowChip(
-                following: isFollowing,
-                onTap: () {
-                  Haptics.commit();
-                  ref
-                      .read(followingSetProvider.notifier)
-                      .toggle(post.creatorHandle);
-                  showDripToast(
-                    context,
-                    isFollowing
-                        ? 'Unfollowed @${post.creatorHandle}'
-                        : 'Following @${post.creatorHandle}',
-                  );
-                },
-              ),
-            ],
+            const SizedBox(width: 12),
+            _FollowChip(
+              following: false,
+              onTap: () => showAfterBeta(context, 'Following creators'),
+            ),
           ],
         ),
         const SizedBox(height: 12),
         Text(
-          post.title.toUpperCase(),
+          outfit.title.toUpperCase(),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: AppText.display(18, lineHeight: 22),
         ),
-        if (caption.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Tap(
-            onTap: () => setState(() => _expanded = !_expanded),
-            semanticLabel: _expanded ? 'Collapse caption' : 'Expand caption',
-            child: AnimatedSize(
-              duration: Motion.quick,
-              curve: Motion.out,
-              alignment: Alignment.topLeft,
-              child: Text(
-                caption,
-                maxLines: _expanded ? 8 : 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.manrope(
-                  13,
-                  lineHeight: 18,
-                  color: AppColors.cream.withValues(alpha: 0.9),
-                ),
-              ),
-            ),
-          ),
-        ],
         const SizedBox(height: 10),
         Wrap(
           spacing: 6,
           runSpacing: 6,
           children: [
-            _MetaChip('ERA · ${post.era}', filled: true),
-            for (final t in post.tags.take(3)) _MetaChip(t.toUpperCase()),
+            _MetaChip(outfit.isCollage ? 'COLLAGE' : 'ON BODY', filled: true),
+            for (final t in outfit.tags.take(3)) _MetaChip(t.toUpperCase()),
           ],
         ),
+        if (outfit.pieces.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _ShopStrip(outfit: outfit),
+        ],
         const SizedBox(height: 10),
-        if (outfit != null) _ShopStrip(outfit: outfit),
-        const SizedBox(height: 10),
-        // Stats: one quiet line, integrated with the post.
-        Row(
-          children: [
-            const Icon(
-              Icons.visibility_rounded,
-              size: 13,
-              color: AppColors.muted,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              '${formatCount(post.views)} views',
-              style: AppText.mono(10, color: AppColors.muted),
-            ),
-            const SizedBox(width: 10),
-            Text('·', style: AppText.mono(10, color: AppColors.dim)),
-            const SizedBox(width: 10),
-            Text(
-              '✦ DRIP ${post.score}',
-              style: AppText.mono(10, color: p.accent, weight: FontWeight.w500),
-            ),
-          ],
+        Text(
+          '✦ DRIP ${outfit.rate}',
+          style: AppText.mono(10, color: p.accent, weight: FontWeight.w500),
         ),
       ],
     );
@@ -539,21 +554,21 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Brand, piece count and price range of the outfit, from the real outfit
-/// data. Tapping opens the full breakdown.
-class _ShopStrip extends StatelessWidget {
+/// Piece count and total price of the fit. Tapping opens the full breakdown.
+class _ShopStrip extends ConsumerWidget {
   const _ShopStrip({required this.outfit});
   final Outfit outfit;
 
   @override
-  Widget build(BuildContext context) {
-    final brands = <String>{for (final piece in outfit.pieces) piece.brand};
-    final first = brands.isEmpty ? 'DRIP' : brands.first;
-    final extra = brands.length - 1;
-    final total = outfit.pieces.isEmpty ? outfit.price : outfit.totalPrice;
-
+  Widget build(BuildContext context, WidgetRef ref) {
+    final total = outfit.price;
+    final n = outfit.pieces.length;
+    final noun = n == 1 ? 'PIECE' : 'PIECES';
     return Tap(
-      onTap: () => context.push('/outfit/${outfit.id}'),
+      onTap: () {
+        ref.read(feedProvider.notifier).signal(outfit.id, 'open');
+        context.push('/outfit/${outfit.id}');
+      },
       semanticLabel: 'Shop the look: ${outfit.title}',
       scale: 0.98,
       child: Glass(
@@ -568,7 +583,7 @@ class _ShopStrip extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'SHOP THE LOOK · ${outfit.pieces.length} PIECES',
+                    'SHOP THE LOOK · $n $noun',
                     style: AppText.mono(
                       9,
                       color: AppColors.muted,
@@ -577,8 +592,7 @@ class _ShopStrip extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '$first${extra > 0 ? ' +$extra' : ''}  ·  '
-                    '${formatPriceShort(total)} total',
+                    total > 0 ? '${formatPrice(total)} total' : 'See the pieces',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.manrope(12, weight: FontWeight.w700),
@@ -601,56 +615,50 @@ class _ShopStrip extends StatelessWidget {
 // ──────────────────────────────────────────────────────────────── rail
 
 class _ActionRail extends ConsumerWidget {
-  const _ActionRail({required this.post});
-  final Ootd post;
+  const _ActionRail({required this.outfit});
+  final Outfit outfit;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feed = ref.read(feedProvider.notifier);
+    final marks = ref.watch(fitMarksProvider);
+    final liked = marks.isLiked(outfit.id);
+    final saved = marks.isSaved(outfit.id);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         _RailButton(
-          icon: post.isLiked
-              ? Icons.favorite_rounded
-              : Icons.favorite_border_rounded,
-          color: post.isLiked ? AppColors.red : AppColors.cream,
-          count: post.likes,
-          active: post.isLiked,
-          semantic: post.isLiked ? 'Unlike' : 'Like',
+          icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          color: liked ? AppColors.red : AppColors.cream,
+          label: 'LIKE',
+          active: liked,
+          semantic: liked ? 'Unlike' : 'Like',
           onTap: () {
             Haptics.commit();
-            feed.toggleLike(post.id);
+            toggleLikeWithToast(context, ref, outfit.id);
           },
         ),
         _RailButton(
           icon: Icons.mode_comment_outlined,
-          count: post.comments,
+          label: 'CHAT',
           semantic: 'Comments',
-          onTap: () => showCommentsSheet(context, post.id),
+          onTap: () => showAfterBeta(context, 'Comments'),
         ),
         _RailButton(
-          icon: post.isSaved
-              ? Icons.bookmark_rounded
-              : Icons.bookmark_border_rounded,
-          color: post.isSaved ? context.palette.accent : AppColors.cream,
-          count: post.saves,
-          active: post.isSaved,
-          semantic: post.isSaved ? 'Remove from saved' : 'Save',
+          icon: saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+          color: saved ? context.palette.accent : AppColors.cream,
+          label: 'SAVE',
+          active: saved,
+          semantic: saved ? 'Remove from saved' : 'Save',
           onTap: () {
             Haptics.commit();
-            feed.toggleSave(post.id);
-            showDripToast(
-              context,
-              post.isSaved ? 'Removed from saved' : 'Saved to your vault',
-            );
+            toggleSaveWithToast(context, ref, outfit.id);
           },
         ),
         _RailButton(
           icon: Icons.ios_share_rounded,
-          count: post.shares,
+          label: 'SHARE',
           semantic: 'Share',
-          onTap: () => showShareSheet(context, post),
+          onTap: () => showAfterBeta(context, 'Sharing'),
         ),
       ],
     );
@@ -660,7 +668,7 @@ class _ActionRail extends ConsumerWidget {
 class _RailButton extends StatelessWidget {
   const _RailButton({
     required this.icon,
-    required this.count,
+    required this.label,
     required this.semantic,
     required this.onTap,
     this.color = AppColors.cream,
@@ -669,7 +677,7 @@ class _RailButton extends StatelessWidget {
 
   final IconData icon;
   final Color color;
-  final int count;
+  final String label;
   final bool active;
   final String semantic;
   final VoidCallback onTap;
@@ -712,8 +720,12 @@ class _RailButton extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                formatCount(count),
-                style: AppText.mono(10, weight: FontWeight.w500),
+                label,
+                style: AppText.mono(
+                  9,
+                  weight: FontWeight.w500,
+                  color: active ? color : AppColors.cream,
+                ),
               ),
             ],
           ),

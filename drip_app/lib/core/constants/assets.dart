@@ -8,4 +8,5 @@ abstract final class Assets {
   static const navPlus = 'assets/icons/nav_plus.svg';
   static const navBriefcase = 'assets/icons/nav_briefcase.svg';
   static const navUser = 'assets/icons/nav_user.svg';
+  static const navStudio = 'assets/icons/nav_studio.svg';
 }

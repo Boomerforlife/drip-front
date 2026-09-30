@@ -1,11 +1,11 @@
 import 'package:drip/app.dart';
-import 'package:drip/data/providers.dart';
 import 'package:drip/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fakes.dart';
 import 'test_fonts.dart';
 
 /// Every screen must lay out without overflow or errors on small phones,
@@ -13,7 +13,7 @@ import 'test_fonts.dart';
 const _routes = [
   '/home',
   '/scroll',
-  '/scroll?id=ootd_moto',
+  '/scroll?id=o_gray',
   '/themes',
   '/ootd/ootd_moto',
   '/create',
@@ -24,6 +24,7 @@ const _routes = [
   '/studio',
   '/studio/builder',
   '/stylist',
+  '/signin',
   '/wardrobe',
   '/wardrobe/capture',
   '/wardrobe/item/w_biker',
@@ -52,10 +53,7 @@ void main() {
 
   for (final entry in _sizes.entries) {
     testWidgets('all screens lay out cleanly on ${entry.key}', (t) async {
-      SharedPreferences.setMockInitialValues({
-        'session.signedIn': true,
-        'session.onboarded': true,
-      });
+      SharedPreferences.setMockInitialValues({'session.onboarded': true});
       final sp = await SharedPreferences.getInstance();
       t.view.physicalSize = entry.value * 2;
       t.view.devicePixelRatio = 2;
@@ -63,7 +61,7 @@ void main() {
 
       await t.pumpWidget(
         ProviderScope(
-          overrides: [sharedPreferencesProvider.overrideWithValue(sp)],
+          overrides: testOverrides(sp, signedIn: true),
           retry: (_, _) => null,
           child: const DripApp(),
         ),

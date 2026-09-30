@@ -8,6 +8,8 @@ class Blueprint {
     required this.pieces,
     required this.occasion,
     required this.vibe,
+    this.fitId,
+    this.alternatives = const [],
   });
 
   final String headline;
@@ -17,6 +19,10 @@ class Blueprint {
   final List<BlueprintPiece> pieces;
   final String occasion;
   final String vibe;
+
+  /// The banked fit Taylor picked (open it on Fit Analysis), and runners-up.
+  final String? fitId;
+  final List<String> alternatives;
 }
 
 class BlueprintPiece {
@@ -43,7 +49,8 @@ class ShootScene {
 
 enum ShootMode { real, ai, edits }
 
-/// One piece in the studio "swap pieces" carousel.
+/// One piece in the studio "swap pieces" carousel: a catalog garment or one
+/// of the user's own (ready) wardrobe items.
 class StudioPiece {
   const StudioPiece({
     required this.id,
@@ -51,12 +58,67 @@ class StudioPiece {
     required this.category,
     required this.image,
     this.price = 0,
+    this.source = 'catalog',
   });
   final String id;
   final String name;
+
+  /// Studio category label (OUTERWEAR, TOPS, BOTTOMS, FOOTWEAR…).
   final String category;
   final String image;
   final int price;
+
+  /// `catalog | wardrobe`: which id the API expects when saving a fit.
+  final String source;
+
+  bool get fromWardrobe => source == 'wardrobe';
+
+  factory StudioPiece.fromJson(Map<String, dynamic> json) {
+    final slot = json['slot'] as String? ?? json['category'] as String? ?? '';
+    final price = json['price'];
+    return StudioPiece(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? StudioSlots.label(slot),
+      category: StudioSlots.label(slot),
+      image: json['image'] as String? ?? '',
+      price: price is Map ? ((price['amount'] as num?)?.round() ?? 0) : 0,
+      source: json['source'] as String? ?? 'catalog',
+    );
+  }
+}
+
+/// The Studio's categories and the API slots behind them
+/// (`GET /meta` → slots: top, bottom, outer, dress, shoes, accessory).
+abstract final class StudioSlots {
+  static const categories = [
+    'OUTERWEAR',
+    'TOPS',
+    'BOTTOMS',
+    'FOOTWEAR',
+    'DRESSES',
+    'ACCESSORIES',
+  ];
+
+  static const _slotFor = {
+    'OUTERWEAR': 'outer',
+    'TOPS': 'top',
+    'BOTTOMS': 'bottom',
+    'FOOTWEAR': 'shoes',
+    'DRESSES': 'dress',
+    'ACCESSORIES': 'accessory',
+  };
+
+  /// OUTERWEAR → `outer`.
+  static String slot(String category) =>
+      _slotFor[category] ?? category.toLowerCase();
+
+  /// `outer` → OUTERWEAR (a studio label passes through unchanged).
+  static String label(String slot) {
+    for (final e in _slotFor.entries) {
+      if (e.value == slot) return e.key;
+    }
+    return slot.toUpperCase();
+  }
 }
 
 class MoodTile {

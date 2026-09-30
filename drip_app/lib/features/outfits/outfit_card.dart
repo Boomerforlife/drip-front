@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/utils/format.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/tap.dart';
 import '../../data/models/outfit.dart';
+import 'fit_actions.dart';
 import 'outfit_controller.dart';
 
 enum OutfitCardStyle {
@@ -44,10 +46,10 @@ class OutfitCard extends ConsumerWidget {
         ? 14.0
         : (style == OutfitCardStyle.plate ? 10.0 : 12.0);
 
+    final liked = ref.watch(fitMarksProvider).isLiked(outfit.id);
     final heart = Tap(
-      onTap: () =>
-          ref.read(outfitCatalogProvider.notifier).toggleLike(outfit.id),
-      semanticLabel: outfit.isLiked
+      onTap: () => toggleLikeWithToast(context, ref, outfit.id),
+      semanticLabel: liked
           ? 'Unlike ${outfit.title}'
           : 'Like ${outfit.title}',
       child: Container(
@@ -61,10 +63,10 @@ class OutfitCard extends ConsumerWidget {
               )
             : null,
         child: Text(
-          outfit.isLiked ? '♥' : '♡',
+          liked ? '♥' : '♡',
           style: AppText.inter(
             heartSize,
-            color: outfit.isLiked ? AppColors.red : AppColors.muted,
+            color: liked ? AppColors.red : AppColors.muted,
           ),
         ),
       ),
@@ -125,7 +127,7 @@ class OutfitCard extends ConsumerWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              '\$${outfit.price} · ${outfit.rate} RATE',
+              '${formatPrice(outfit.price)} · ${outfit.rate} RATE',
               style: AppText.mono(8, color: AppColors.cyan),
             ),
           ],
@@ -150,7 +152,7 @@ class OutfitCard extends ConsumerWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '\$${outfit.price} · @${outfit.creatorHandle}',
+                '${formatPrice(outfit.price)} · @${outfit.creatorHandle}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.mono(8, color: AppColors.cyan),
@@ -171,7 +173,7 @@ class OutfitCard extends ConsumerWidget {
             ),
             const SizedBox(height: 2),
             Text(
-              '\$${outfit.price} · @${outfit.creatorHandle}',
+              '${formatPrice(outfit.price)} · @${outfit.creatorHandle}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppText.mono(8, color: AppColors.cyan),

@@ -12,11 +12,13 @@ abstract final class AppText {
   static const _even = TextLeadingDistribution.even;
 
   /// The Figma file draws icons as unicode glyphs (✦ ◀ ⌕ ✕ ♥ …) that the brand
-  /// fonts lack, so bundled symbol fonts back every style up.
+  /// fonts lack, so bundled symbol fonts back every style up. Manrope comes
+  /// last for the rupee sign (₹), which DM Mono doesn't have.
   static const fallback = [
     'Noto Sans Symbols',
     'Noto Sans Symbols 2',
     'Noto Emoji',
+    'Manrope',
   ];
 
   static TextStyle _base(

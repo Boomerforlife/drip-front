@@ -37,7 +37,7 @@ final profileFitsProvider = Provider.family<List<Outfit>, String>((
 
 /// Feed posts authored by [handle] (OOTD tab).
 final profilePostsProvider = Provider.family<List<Ootd>, String>((ref, handle) {
-  final feed = ref.watch(feedProvider).value ?? const <Ootd>[];
+  final feed = ref.watch(postsProvider).value ?? const <Ootd>[];
   return feed.where((p) => p.creatorHandle == handle).toList();
 });
 

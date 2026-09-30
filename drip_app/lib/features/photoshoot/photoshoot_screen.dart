@@ -13,9 +13,14 @@ import '../../core/widgets/overlays.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/api/api_client.dart';
 import '../../data/mock/mock_content.dart';
+import '../../data/models/account.dart';
+import '../../data/models/outfit.dart';
 import '../../data/models/stylist.dart';
+import '../../data/providers.dart';
 import '../../routing/main_shell.dart';
+import '../outfits/outfit_controller.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import 'photoshoot_controller.dart';
 
@@ -28,6 +33,72 @@ class PhotoshootScreen extends ConsumerStatefulWidget {
 
 class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
   final _picker = ImagePicker();
+  bool _uploadingSelfie = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pick up fits liked or saved since the library was last loaded.
+    Future.microtask(() {
+      if (mounted) ref.invalidate(libraryProvider);
+    });
+  }
+
+  /// Gen renders the user wearing the fit, so it needs a selfie on file.
+  Future<bool> _addSelfie() async {
+    final source = await showDripSheet<ImageSource>(
+      context,
+      builder: (ctx) => SheetContent(
+        title: 'ADD A SELFIE',
+        subtitle:
+            'AI GEN puts you in the fit. Use a clear, front-facing photo in '
+            'good light. It stays private to your account.',
+        children: [
+          AppButton(
+            label: 'TAKE A SELFIE',
+            height: 44,
+            onPressed: () => Navigator.of(ctx).pop(ImageSource.camera),
+          ),
+          const SizedBox(height: 10),
+          AppButton(
+            label: 'CHOOSE FROM LIBRARY',
+            style: AppButtonStyle.outline,
+            height: 44,
+            onPressed: () => Navigator.of(ctx).pop(ImageSource.gallery),
+          ),
+        ],
+      ),
+    );
+    if (source == null || !mounted) return false;
+    final XFile? file;
+    try {
+      file = await _picker.pickImage(
+        source: source,
+        preferredCameraDevice: CameraDevice.front,
+        maxWidth: 1600,
+        imageQuality: 88,
+      );
+    } catch (_) {
+      if (mounted) showDripToast(context, 'Camera unavailable');
+      return false;
+    }
+    if (file == null || !mounted) return false;
+    final type = imageContentType(file.name) ?? 'image/jpeg';
+    setState(() => _uploadingSelfie = true);
+    try {
+      await ref
+          .read(accountRepositoryProvider)
+          .uploadAvatar(await file.readAsBytes(), contentType: type);
+      ref.invalidate(accountProvider);
+      if (mounted) showDripToast(context, 'Selfie saved');
+      return true;
+    } on ApiException catch (e) {
+      if (mounted) showDripToast(context, e.friendly);
+      return false;
+    } finally {
+      if (mounted) setState(() => _uploadingSelfie = false);
+    }
+  }
 
   Future<void> _customScene(PhotoshootController c) async {
     final t = TextEditingController();
@@ -62,11 +133,11 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
   Future<void> _generate() async {
     final s = ref.read(photoshootProvider);
     final controller = ref.read(photoshootProvider.notifier);
-    final items = ref.read(wardrobeProvider).value ?? const [];
-    final fit =
-        items.where((i) => i.id == s.fitId).firstOrNull ?? items.firstOrNull;
+    final fits = ref.read(shootableFitsProvider).value ?? const <Outfit>[];
+    final fit = fits.where((o) => o.id == s.fitId).firstOrNull ??
+        fits.firstOrNull;
     if (fit == null) {
-      showDripToast(context, 'Add a garment to your wardrobe first');
+      showDripToast(context, 'Save or like a fit in the Scroll first');
       return;
     }
 
@@ -86,21 +157,51 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
         }
         return;
       }
-    }
-    await controller.generate(fitName: fit.name, realImage: real);
-    if (!mounted) return;
-    if (ref.read(photoshootProvider).render.hasError) {
-      showDripToast(context, 'The render failed — try again');
     } else {
-      context.push('/photoshoot/result');
+      final Account account;
+      try {
+        account = await ref.read(accountProvider.future);
+      } on ApiException catch (e) {
+        if (mounted) showDripToast(context, e.friendly);
+        return;
+      }
+      if (!mounted) return;
+      if (account.genCreditsRemaining <= 0) {
+        showDripToast(context, "You've used all your AI GEN credits");
+        return;
+      }
+      if (!account.hasAvatar && !await _addSelfie()) return;
     }
+    await controller.generate(fit: fit, realImage: real);
+    if (!mounted) return;
+    final render = ref.read(photoshootProvider).render;
+    if (render.hasError) {
+      final e = render.error;
+      showDripToast(
+        context,
+        e is GenCreditsUsedUp
+            ? "You've used all your AI GEN credits"
+            : e is ApiException
+            ? e.friendly
+            : 'The render failed — try again',
+      );
+      return;
+    }
+    if (render.value?.fellBack ?? false) {
+      showDripToast(
+        context,
+        "Gen couldn't render this one, so here's the fit. Credit refunded.",
+      );
+    }
+    context.push('/photoshoot/result');
   }
 
   @override
   Widget build(BuildContext context) {
     final s = ref.watch(photoshootProvider);
     final c = ref.read(photoshootProvider.notifier);
-    final wardrobe = ref.watch(wardrobeProvider);
+    final fits = ref.watch(shootableFitsProvider);
+    final account = ref.watch(accountProvider).value;
     final accent = context.palette.accent;
 
     return ShellPage(
@@ -139,26 +240,58 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Expanded(
+                    Expanded(
                       child: _ModeTab(
-                        label: 'EDITS (SOON)',
+                        label: 'EDITS',
                         selected: false,
-                        onTap: null,
+                        dimmed: true,
+                        onTap: () => showAfterBeta(context, 'Edits'),
                       ),
                     ),
                   ],
                 ),
+                if (s.mode == ShootMode.ai) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          account == null
+                              ? 'AI GEN PUTS YOU IN THE FIT'
+                              : '${account.genCreditsRemaining} AI GEN '
+                                    '${account.genCreditsRemaining == 1 ? 'CREDIT' : 'CREDITS'} LEFT',
+                          style: AppText.mono(9, color: AppColors.muted),
+                        ),
+                      ),
+                      Tap(
+                        onTap: _uploadingSelfie ? null : _addSelfie,
+                        semanticLabel: 'Add or replace your selfie',
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: Text(
+                            _uploadingSelfie
+                                ? 'UPLOADING…'
+                                : account?.hasAvatar ?? false
+                                ? 'SELFIE ON FILE ✓'
+                                : 'ADD A SELFIE →',
+                            style: AppText.mono(9, color: AppColors.cyan),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 20),
                 const SectionLabel('SELECT THE FIT TO SHOOT'),
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 154,
-                  child: wardrobe.when(
+                  child: fits.when(
                     data: (items) => items.isEmpty
                         ? const EmptyState(
-                            title: 'NO GARMENTS',
+                            title: 'NO FITS TO SHOOT',
                             message:
-                                'Add a garment to your wardrobe to shoot it.',
+                                'Save or like a fit in the Scroll to shoot it.',
                           )
                         : ListView.separated(
                             scrollDirection: Axis.horizontal,
@@ -201,7 +334,7 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
-                                        item.name.toUpperCase(),
+                                        item.title.toUpperCase(),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: AppText.display(
@@ -216,7 +349,7 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
                                       Text(
                                         selected
                                             ? 'ACTIVE SELECTION'
-                                            : '\$${item.price.round()} · READY',
+                                            : '✦ DRIP ${item.rate}',
                                         style: AppText.mono(
                                           8,
                                           lineHeight: 10,
@@ -232,8 +365,9 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
                             },
                           ),
                     loading: () => const LoadingState(compact: true),
-                    error: (_, _) => ErrorState(
-                      onRetry: () => ref.invalidate(wardrobeProvider),
+                    error: (e, _) => ErrorState.from(
+                      e,
+                      onRetry: () => ref.invalidate(libraryProvider),
                     ),
                   ),
                 ),
@@ -285,15 +419,19 @@ class _ModeTab extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.dimmed = false,
   });
   final String label;
   final bool selected;
   final VoidCallback? onTap;
 
+  /// Shown but not available yet (still tappable, to say so).
+  final bool dimmed;
+
   @override
   Widget build(BuildContext context) {
     return Opacity(
-      opacity: onTap == null ? 0.4 : 1,
+      opacity: onTap == null || dimmed ? 0.4 : 1,
       child: Tap(
         onTap: onTap,
         child: AnimatedContainer(
@@ -303,7 +441,7 @@ class _ModeTab extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? AppColors.cream : AppColors.surface,
             borderRadius: BorderRadius.circular(14),
-            border: selected || onTap == null
+            border: selected || onTap == null || dimmed
                 ? null
                 : Border.all(color: AppColors.elevated),
           ),

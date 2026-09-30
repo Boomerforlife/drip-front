@@ -1,6 +1,8 @@
+import '../api/api_client.dart';
 import '../mock/mock_content.dart';
 import '../mock/mock_users.dart';
 import '../models/outfit.dart';
+import '../models/studio.dart';
 
 class SearchResults {
   const SearchResults({
@@ -18,17 +20,70 @@ class SearchResults {
   int get total => fits.length + creatorHandles.length + collections.length;
 }
 
-/// Source of complete looks: Discover, Search, Saved Looks and Fit Analysis.
+/// Complete looks: Fit Analysis, saves and likes, and the user's library.
 abstract interface class OutfitRepository {
-  Future<List<Outfit>> discover({String? category, String query = ''});
   Future<Outfit?> byId(String id);
-  Future<List<Outfit>> saved();
+
+  /// `GET /studio`: saved, liked, Gen renders and the user's own fits.
+  Future<StudioLibrary> library();
   Future<void> setSaved(String id, {required bool saved});
   Future<void> setLiked(String id, {required bool liked});
+
+  // Discover, search and creator pages have no backend endpoint yet (their
+  // UI says "coming after beta"). Only the mock answers these.
+  Future<List<Outfit>> discover({String? category, String query = ''});
   Future<SearchResults> search(String query);
   Future<List<String>> trendingVibes();
-  Future<Outfit> publishLook(Outfit look);
   Future<List<Outfit>> byCreator(String handle);
+}
+
+class ApiOutfitRepository implements OutfitRepository {
+  ApiOutfitRepository(this._api);
+  final ApiClient _api;
+
+  @override
+  Future<Outfit?> byId(String id) async {
+    try {
+      final json = await _api.get('/outfits/$id') as Map;
+      return Outfit.fromJson(json.cast<String, dynamic>());
+    } on ApiException catch (e) {
+      if (e.isNotFound) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<StudioLibrary> library() async => StudioLibrary.fromJson(
+    (await _api.get('/studio') as Map).cast<String, dynamic>(),
+  );
+
+  @override
+  Future<void> setSaved(String id, {required bool saved}) => saved
+      ? _api.put('/outfits/$id/save')
+      : _api.delete('/outfits/$id/save');
+
+  @override
+  Future<void> setLiked(String id, {required bool liked}) => liked
+      ? _api.put('/outfits/$id/like')
+      : _api.delete('/outfits/$id/like');
+
+  @override
+  Future<List<Outfit>> discover({String? category, String query = ''}) async =>
+      const [];
+
+  @override
+  Future<SearchResults> search(String query) async => const SearchResults(
+    fits: [],
+    creatorHandles: [],
+    vibes: [],
+    collections: [],
+  );
+
+  @override
+  Future<List<String>> trendingVibes() async => const [];
+
+  @override
+  Future<List<Outfit>> byCreator(String handle) async => const [];
 }
 
 class MockOutfitRepository implements OutfitRepository {
@@ -62,9 +117,12 @@ class MockOutfitRepository implements OutfitRepository {
   }
 
   @override
-  Future<List<Outfit>> saved() async {
+  Future<StudioLibrary> library() async {
     await _latency();
-    return _outfits.where((o) => _saved.contains(o.id)).toList();
+    return StudioLibrary(
+      saved: _outfits.where((o) => _saved.contains(o.id)).toList(),
+      liked: _outfits.where((o) => o.isLiked).toList(),
+    );
   }
 
   @override
@@ -118,14 +176,6 @@ class MockOutfitRepository implements OutfitRepository {
 
   @override
   Future<List<String>> trendingVibes() async => MockContent.trendingVibes;
-
-  @override
-  Future<Outfit> publishLook(Outfit look) async {
-    await _latency();
-    _outfits.insert(0, look);
-    _saved.add(look.id);
-    return look;
-  }
 
   @override
   Future<List<Outfit>> byCreator(String handle) async =>

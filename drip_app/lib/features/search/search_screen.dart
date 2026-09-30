@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/utils/format.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/pills.dart';
@@ -372,7 +373,7 @@ class _LiveResults extends ConsumerWidget {
                             Text(o.title, style: AppText.mono(11)),
                             const SizedBox(height: 2),
                             Text(
-                              '\$${o.price} · @${o.creatorHandle}',
+                              '${formatPrice(o.price)} · @${o.creatorHandle}',
                               style: AppText.mono(9, color: AppColors.cyan),
                             ),
                           ],

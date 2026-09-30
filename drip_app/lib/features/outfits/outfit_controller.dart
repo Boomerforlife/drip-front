@@ -1,77 +1,121 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/outfit.dart';
+import '../../data/models/studio.dart';
 import '../../data/providers.dart';
+import '../home/feed_controller.dart';
 
-/// Every look in the catalogue (Discover, Search, profile grids, Fit Analysis).
+/// The user's own space (`GET /studio`): saved and liked fits, Gen renders
+/// and the fits they built. Refetched after saves, likes and Gen.
+final libraryProvider = FutureProvider<StudioLibrary>(
+  (ref) => ref.watch(outfitRepositoryProvider).library(),
+);
+
+/// One fit, from wherever it's already loaded (the feed, the library) or else
+/// `GET /outfits/:id`. Null when it doesn't exist.
+final outfitProvider = FutureProvider.family<Outfit?, String>((ref, id) async {
+  final cached = ref.read(feedOutfitProvider(id));
+  if (cached != null) return cached;
+  final lib = ref.read(libraryProvider).value;
+  for (final o in [...?lib?.saved, ...?lib?.liked]) {
+    if (o.id == id) return o;
+  }
+  return ref.watch(outfitRepositoryProvider).byId(id);
+});
+
+/// What the user has liked and saved. Seeded from the library, updated
+/// optimistically on tap, and reverted if the API call fails.
+class FitMarks {
+  const FitMarks({this.liked = const {}, this.saved = const {}});
+  final Set<String> liked;
+  final Set<String> saved;
+
+  bool isLiked(String id) => liked.contains(id);
+  bool isSaved(String id) => saved.contains(id);
+}
+
+class FitMarksController extends Notifier<FitMarks> {
+  @override
+  FitMarks build() {
+    // Re-seed only from a finished fetch: while the library refetches it
+    // still holds the old lists, which would briefly undo a fresh toggle.
+    ref.listen(libraryProvider, (_, next) {
+      final lib = next.value;
+      if (lib != null && !next.isLoading) state = _from(lib);
+    });
+    final lib = ref.read(libraryProvider).value;
+    return lib == null ? const FitMarks() : _from(lib);
+  }
+
+  static FitMarks _from(StudioLibrary lib) => FitMarks(
+    liked: {for (final o in lib.liked) o.id},
+    saved: {for (final o in lib.saved) o.id},
+  );
+
+  /// Returns the new state. Throws (after reverting) if the API refused.
+  Future<bool> toggleLike(String id) async {
+    final before = state;
+    final liked = !before.isLiked(id);
+    state = FitMarks(
+      liked: liked ? {...before.liked, id} : ({...before.liked}..remove(id)),
+      saved: before.saved,
+    );
+    try {
+      await ref.read(outfitRepositoryProvider).setLiked(id, liked: liked);
+    } catch (_) {
+      state = before;
+      rethrow;
+    }
+    return liked;
+  }
+
+  /// Returns the new state. Throws (after reverting) if the API refused.
+  Future<bool> toggleSave(String id) async {
+    final before = state;
+    final saved = !before.isSaved(id);
+    state = FitMarks(
+      liked: before.liked,
+      saved: saved ? {...before.saved, id} : ({...before.saved}..remove(id)),
+    );
+    try {
+      await ref.read(outfitRepositoryProvider).setSaved(id, saved: saved);
+    } catch (_) {
+      state = before;
+      rethrow;
+    }
+    // The Saved list shows full fits, so pick up the server's copy.
+    ref.invalidate(libraryProvider);
+    return saved;
+  }
+}
+
+final fitMarksProvider = NotifierProvider<FitMarksController, FitMarks>(
+  FitMarksController.new,
+);
+
+/// Saved looks (Wardrobe → SAVED), minus anything unsaved since the last
+/// library fetch.
+final savedOutfitsProvider = Provider<AsyncValue<List<Outfit>>>((ref) {
+  final marks = ref.watch(fitMarksProvider);
+  return ref
+      .watch(libraryProvider)
+      .whenData(
+        (lib) => [
+          for (final o in lib.saved)
+            if (marks.isSaved(o.id)) o,
+        ],
+      );
+});
+
+/// Discover and search results (mock only until those endpoints exist; the
+/// screens are behind "coming after beta").
 class OutfitCatalogController extends AsyncNotifier<List<Outfit>> {
   @override
   Future<List<Outfit>> build() =>
       ref.watch(outfitRepositoryProvider).discover();
-
-  Future<void> toggleLike(String id) async {
-    final list = state.value;
-    if (list == null) return;
-    final current = list.firstWhere((o) => o.id == id);
-    final liked = !current.isLiked;
-    state = AsyncData([
-      for (final o in list) o.id == id ? o.copyWith(isLiked: liked) : o,
-    ]);
-    await ref.read(outfitRepositoryProvider).setLiked(id, liked: liked);
-  }
-
-  Future<void> add(Outfit look) async {
-    await ref.read(outfitRepositoryProvider).publishLook(look);
-    state = AsyncData([look, ...?state.value]);
-    ref.invalidate(savedOutfitsProvider);
-  }
 }
 
 final outfitCatalogProvider =
     AsyncNotifierProvider<OutfitCatalogController, List<Outfit>>(
       OutfitCatalogController.new,
-    );
-
-final outfitProvider = Provider.family<Outfit?, String>((ref, id) {
-  final list = ref.watch(outfitCatalogProvider).value;
-  if (list == null) return null;
-  for (final o in list) {
-    if (o.id == id) return o;
-  }
-  return null;
-});
-
-/// Looks the user has saved (Saved Looks → SAVED STYLES).
-class SavedOutfitsController extends AsyncNotifier<List<Outfit>> {
-  @override
-  Future<List<Outfit>> build() async {
-    final saved = await ref.watch(outfitRepositoryProvider).saved();
-    // Reflect likes made elsewhere.
-    final catalog = ref.watch(outfitCatalogProvider).value ?? const [];
-    return [
-      for (final s in saved)
-        catalog.firstWhere((c) => c.id == s.id, orElse: () => s),
-    ];
-  }
-
-  bool isSaved(String id) => state.value?.any((o) => o.id == id) ?? false;
-
-  Future<void> toggle(Outfit outfit) async {
-    final list = state.value ?? const [];
-    final saved = !list.any((o) => o.id == outfit.id);
-    state = AsyncData(
-      saved
-          ? [outfit, ...list]
-          : [
-              for (final o in list)
-                if (o.id != outfit.id) o,
-            ],
-    );
-    await ref.read(outfitRepositoryProvider).setSaved(outfit.id, saved: saved);
-  }
-}
-
-final savedOutfitsProvider =
-    AsyncNotifierProvider<SavedOutfitsController, List<Outfit>>(
-      SavedOutfitsController.new,
     );

@@ -21,16 +21,22 @@ import 'session_controller.dart';
 void resetAppState(WidgetRef ref) {
   // Data sources first so dependants rebuild from fresh repositories.
   ref
+    ..invalidate(apiClientProvider)
     ..invalidate(feedRepositoryProvider)
     ..invalidate(outfitRepositoryProvider)
     ..invalidate(wardrobeRepositoryProvider)
+    ..invalidate(studioRepositoryProvider)
+    ..invalidate(postsRepositoryProvider)
     ..invalidate(socialRepositoryProvider)
     ..invalidate(activityRepositoryProvider)
     ..invalidate(localStoreProvider)
+    ..invalidate(accountProvider)
     ..invalidate(feedProvider)
+    ..invalidate(postsProvider)
     ..invalidate(storiesProvider)
+    ..invalidate(libraryProvider)
+    ..invalidate(fitMarksProvider)
     ..invalidate(outfitCatalogProvider)
-    ..invalidate(savedOutfitsProvider)
     ..invalidate(wardrobeProvider)
     ..invalidate(rotationProvider)
     ..invalidate(followingSetProvider)

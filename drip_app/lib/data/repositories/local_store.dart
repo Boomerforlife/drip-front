@@ -4,25 +4,37 @@ import '../../core/theme/drip_skin.dart';
 import '../models/settings.dart';
 
 /// Thin typed wrapper over [SharedPreferences]. This is *device-local*
-/// persistence (session flag, onboarding picks, settings, recent searches,
-/// follow list) — not a substitute for the future backend.
+/// persistence (onboarding picks, settings, recent searches, follow list,
+/// wardrobe rotation). The session itself lives in Supabase auth.
 class LocalStore {
   LocalStore(this._prefs);
 
   final SharedPreferences _prefs;
 
-  static const _signedIn = 'session.signedIn';
   static const _onboarded = 'session.onboarded';
+  static const _prefsPending = 'onboarding.pending';
+  static const _rotation = 'wardrobe.rotation';
+  static const _flow = 'onboarding.flow';
   static const _moods = 'onboarding.moods';
   static const _palette = 'onboarding.palette';
   static const _following = 'social.following';
   static const _recents = 'search.recents';
 
-  bool get signedIn => _prefs.getBool(_signedIn) ?? false;
   bool get onboarded => _prefs.getBool(_onboarded) ?? false;
-
-  Future<void> setSignedIn(bool v) => _prefs.setBool(_signedIn, v);
   Future<void> setOnboarded(bool v) => _prefs.setBool(_onboarded, v);
+
+  /// Onboarding picks made before sign-in, not yet sent with `PATCH /me`.
+  bool get prefsPending => _prefs.getBool(_prefsPending) ?? false;
+  Future<void> setPrefsPending(bool v) => _prefs.setBool(_prefsPending, v);
+
+  /// Wardrobe items marked "in rotation" (no backend field for this yet).
+  Set<String> get rotation => _prefs.getStringList(_rotation)?.toSet() ?? {};
+  Future<void> setRotation(Set<String> ids) =>
+      _prefs.setStringList(_rotation, ids.toList());
+
+  /// All onboarding picks as one JSON document (see `OnboardingState`).
+  String? get flowJson => _prefs.getString(_flow);
+  Future<void> setFlowJson(String v) => _prefs.setString(_flow, v);
 
   Set<String>? get moodIds => _prefs.getStringList(_moods)?.toSet();
   Future<void> setMoodIds(Set<String> ids) =>

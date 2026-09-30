@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/mock/mock_content.dart';
 import '../../data/models/stylist.dart';
 import '../../data/providers.dart';
 import '../wardrobe/wardrobe_controller.dart';
@@ -57,9 +56,18 @@ class StylistController extends Notifier<StylistState> {
     return result.value;
   }
 
-  static List<String> get occasions => MockContent.occasions;
-  static List<String> get vibes => MockContent.attireVibes;
 }
+
+/// Occasion and vibe labels Taylor accepts (from `GET /meta`).
+final stylistOptionsProvider = FutureProvider<(List<String>, List<String>)>((
+  ref,
+) async {
+  final meta = await ref.watch(metaProvider.future);
+  return (
+    [for (final o in meta.occasions) o.label],
+    [for (final v in meta.vibes) v.label],
+  );
+});
 
 final stylistProvider = NotifierProvider<StylistController, StylistState>(
   StylistController.new,

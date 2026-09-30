@@ -7,18 +7,16 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/app_button.dart';
-import '../../core/widgets/controls.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/models/outfit.dart';
 import '../../data/models/user.dart';
 import '../../routing/main_shell.dart';
-import '../activity/activity_controller.dart';
+import '../outfits/outfit_controller.dart';
 import '../photoshoot/photoshoot_controller.dart';
 import '../social/social_controller.dart';
-import 'profile_controller.dart';
 import 'profile_widgets.dart';
 
 class MyProfileScreen extends ConsumerStatefulWidget {
@@ -31,62 +29,21 @@ class MyProfileScreen extends ConsumerStatefulWidget {
 class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
   int _tab = 0;
 
-  Future<void> _edit(DripUser me) async {
-    final name = TextEditingController(text: me.name);
-    final bio = TextEditingController(text: me.bio);
-    String? error;
-    final saved = await showDripSheet<bool>(
-      context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => SheetContent(
-          title: 'EDIT PROFILE',
-          children: [
-            DripField(
-              controller: name,
-              hint: 'Display name',
-              radius: 14,
-              errorText: error,
-            ),
-            const SizedBox(height: 10),
-            DripField(controller: bio, hint: 'Bio', radius: 14, maxLines: 3),
-            const SizedBox(height: 16),
-            AppButton(
-              label: 'SAVE PROFILE',
-              height: 44,
-              onPressed: () {
-                if (name.text.trim().length < 2) {
-                  setSheet(() => error = 'Name must be at least 2 characters');
-                  return;
-                }
-                Navigator.of(ctx).pop(true);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-    if (saved == true) {
-      await ref
-          .read(myProfileProvider.notifier)
-          .saveProfile(name: name.text.trim(), bio: bio.text.trim());
-      if (mounted) showDripToast(context, 'Profile updated');
-    }
-    name.dispose();
-    bio.dispose();
-  }
-
   Future<void> _menu() async {
-    final items = await ref.read(activityProvider.future);
-    final unread = items.where((a) => !a.isRead).length;
-    if (!mounted) return;
     await showDripSheet<void>(
       context,
       builder: (ctx) {
-        Widget row(String glyph, String label, String route, {String? badge}) =>
-            Tap(
+        Widget row(
+          String glyph,
+          String label,
+          String? route, {
+          String? badge,
+        }) => Tap(
               onTap: () {
                 Navigator.of(ctx).pop();
-                context.push(route);
+                route == null
+                    ? showAfterBeta(context, label)
+                    : context.push(route);
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -127,16 +84,11 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
         return SheetContent(
           title: 'MENU',
           children: [
-            row(
-              '🔔',
-              'Notifications',
-              '/activity',
-              badge: unread > 0 ? '$unread' : null,
-            ),
+            row('🔔', 'Notifications', null, badge: 'AFTER BETA'),
             row('📁', 'Saved looks', '/saved'),
             row('🛠', 'Drip Studio', '/studio'),
-            row('✦', 'Followers', '/followers'),
-            row('✦', 'Following', '/following'),
+            row('✦', 'Followers', null),
+            row('✦', 'Following', null),
             row('🎨', 'Colour theory', '/me/colour-theory'),
             row('⚙', 'Settings', '/settings'),
           ],
@@ -167,7 +119,7 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
                 user: me,
                 tab: _tab,
                 onTab: (i) => setState(() => _tab = i),
-                onEdit: () => _edit(me),
+                onEdit: () => showAfterBeta(context, 'Editing your profile'),
               ),
             ),
           ),
@@ -191,18 +143,17 @@ class _Body extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final fits = ref.watch(profileFitsProvider(user.handle));
-    final posts = ref.watch(profilePostsProvider(user.handle));
-    final photos = ref.watch(myPhotosProvider);
+    final fits = ref.watch(savedOutfitsProvider).value ?? const <Outfit>[];
+    final photos = ref.watch(photosProvider);
 
     final tiles = switch (tab) {
       0 => [for (final o in fits) PhotoTile(o.image, '/outfit/${o.id}')],
-      1 => [for (final p in posts) PhotoTile(p.image, '/ootd/${p.id}')],
+      1 => const <PhotoTile>[],
       _ => [for (final p in photos) PhotoTile(p)],
     };
     final emptyCopy = switch (tab) {
-      0 => ('NO FITS YET', 'Publish a look from the Studio and it lands here.'),
-      1 => ('NO OOTDS YET', 'Tap + to post your first outfit of the day.'),
+      0 => ('NO FITS YET', 'Save fits from the Scroll and they land here.'),
+      1 => ('OOTDS AFTER BETA', 'Posting your outfit of the day is coming after beta.'),
       _ => (
         'NO PHOTOS YET',
         'Generate a shoot in the Studio to fill this tab.',
@@ -226,8 +177,8 @@ class _Body extends ConsumerWidget {
               const SizedBox(height: 12),
               ProfileStats(
                 user: user,
-                onFollowers: () => context.push('/followers'),
-                onFollowing: () => context.push('/following'),
+                onFollowers: () => showAfterBeta(context, 'Followers'),
+                onFollowing: () => showAfterBeta(context, 'Following'),
               ),
             ],
           ),

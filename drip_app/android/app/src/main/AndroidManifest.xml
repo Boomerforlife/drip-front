@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The Drip API and Supabase sign-in. (Debug builds get this implicitly;
+         release builds need it declared.) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="drip"
         android:name="${applicationName}"
@@ -20,6 +23,19 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Google sign-in returns here (Supabase redirectTo). supabase_flutter
+                 reads the link itself, so Flutter's router must not also try
+                 to open it as a route. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="com.drip.drip" android:host="login-callback"/>
+            </intent-filter>
         </activity>
         <!-- Launcher icons, one per theme. Exactly one alias is enabled at a
              time (the app switches them via the "drip/app_icon" channel in
@@ -196,6 +212,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Opening Google sign-in in the browser. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

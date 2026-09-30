@@ -94,7 +94,7 @@ class CreateOotdController extends Notifier<CreateOotdState> {
       caption: state.caption,
       location: state.location,
     );
-    await ref.read(feedProvider.notifier).publish(post);
+    await ref.read(postsProvider.notifier).publish(post);
     if (!ref.mounted) return post;
     state = const CreateOotdState();
     return post;

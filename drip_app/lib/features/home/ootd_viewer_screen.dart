@@ -57,7 +57,7 @@ class _OotdViewerScreenState extends ConsumerState<OotdViewerScreen> {
       () => same ? _reactions.remove(post.id) : _reactions[post.id] = label,
     );
     if (!same) {
-      await ref.read(feedRepositoryProvider).sendReaction(post.id, label);
+      await ref.read(postsRepositoryProvider).sendReaction(post.id, label);
       if (mounted) {
         showDripToast(context, 'Sent $label to @${post.creatorHandle}');
       }
@@ -69,7 +69,7 @@ class _OotdViewerScreenState extends ConsumerState<OotdViewerScreen> {
     if (text.isEmpty) return;
     FocusScope.of(context).unfocus();
     _message.clear();
-    await ref.read(feedRepositoryProvider).sendMessage(post.id, text);
+    await ref.read(postsRepositoryProvider).sendMessage(post.id, text);
     if (mounted) {
       showDripToast(context, 'Message sent to @${post.creatorHandle}');
     }
@@ -77,12 +77,12 @@ class _OotdViewerScreenState extends ConsumerState<OotdViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final feed = ref.watch(feedProvider);
+    final feed = ref.watch(postsProvider);
 
     return Scaffold(
       backgroundColor: AppColors.base,
       body: feed.whenDrip(
-        onRetry: () => ref.invalidate(feedProvider),
+        onRetry: () => ref.invalidate(postsProvider),
         data: (posts) {
           final start = posts.indexWhere((p) => p.id == widget.ootdId);
           if (start < 0) {

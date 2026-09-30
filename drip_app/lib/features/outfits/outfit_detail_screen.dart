@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -16,6 +15,7 @@ import '../../data/models/outfit.dart';
 import '../../routing/main_shell.dart';
 import '../bag/bag_controller.dart';
 import '../bag/bag_sheet.dart';
+import 'fit_actions.dart';
 import 'outfit_controller.dart';
 
 /// "Fit Analysis": annotated hero, garment breakdown and shop actions.
@@ -25,11 +25,8 @@ class OutfitDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final catalog = ref.watch(outfitCatalogProvider);
     final outfit = ref.watch(outfitProvider(outfitId));
-    final saved =
-        ref.watch(savedOutfitsProvider).value?.any((o) => o.id == outfitId) ??
-        false;
+    final saved = ref.watch(fitMarksProvider).isSaved(outfitId);
 
     return ShellPage(
       child: Column(
@@ -45,24 +42,13 @@ class OutfitDetailScreen extends ConsumerWidget {
               mono: true,
               size: 18,
               label: 'Share',
-              onTap: outfit == null
-                  ? null
-                  : () async {
-                      await Clipboard.setData(
-                        ClipboardData(
-                          text: 'https://drip.app/fit/${outfit.id}',
-                        ),
-                      );
-                      if (context.mounted) {
-                        showDripToast(context, 'Link copied');
-                      }
-                    },
+              onTap: () => showAfterBeta(context, 'Sharing fits'),
             ),
           ),
           Expanded(
-            child: catalog.whenDrip(
-              onRetry: () => ref.invalidate(outfitCatalogProvider),
-              data: (_) {
+            child: outfit.whenDrip(
+              onRetry: () => ref.invalidate(outfitProvider(outfitId)),
+              data: (outfit) {
                 if (outfit == null) {
                   return const EmptyState(
                     title: 'FIT NOT FOUND',
@@ -85,6 +71,7 @@ class _Content extends ConsumerWidget {
   final bool saved;
 
   List<Hotspot> get _hotspots {
+    if (outfit.isCollage) return const [];
     if (outfit.hotspots.isNotEmpty) return outfit.hotspots;
     final p = outfit.pieces;
     return [
@@ -109,7 +96,9 @@ class _Content extends ConsumerWidget {
       for (final p in pieces)
         BagLine(
           name: p.name,
-          subtitle: '${p.slot} · BY ${p.brand.toUpperCase()}',
+          subtitle: p.brand.isEmpty
+              ? p.slot
+              : '${p.slot} · BY ${p.brand.toUpperCase()}',
           price: p.price,
         ),
     ]);
@@ -205,17 +194,7 @@ class _Content extends ConsumerWidget {
           child: Row(
             children: [
               Tap(
-                onTap: () async {
-                  await ref.read(savedOutfitsProvider.notifier).toggle(outfit);
-                  if (context.mounted) {
-                    showDripToast(
-                      context,
-                      saved
-                          ? 'Removed from saved looks'
-                          : 'Saved to your looks',
-                    );
-                  }
-                },
+                onTap: () => toggleSaveWithToast(context, ref, outfit.id),
                 semanticLabel: saved ? 'Unsave look' : 'Save look',
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
@@ -272,7 +251,14 @@ class _Hero extends StatelessWidget {
           builder: (context, c) => Stack(
             fit: StackFit.expand,
             children: [
-              DripImage(outfit.image, alignment: Alignment.topCenter),
+              ColoredBox(
+                color: AppColors.surface,
+                child: DripImage(
+                  outfit.image,
+                  fit: outfit.isCollage ? BoxFit.contain : BoxFit.cover,
+                  alignment: Alignment.topCenter,
+                ),
+              ),
               for (final h in hotspots)
                 Positioned(
                   left: h.x * c.maxWidth,
@@ -391,7 +377,11 @@ class _PieceRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'BY ${piece.brand.toUpperCase()}',
+                    piece.brand.isNotEmpty
+                        ? 'BY ${piece.brand.toUpperCase()}'
+                        : piece.buyUrl != null
+                        ? 'AVAILABLE ONLINE'
+                        : 'DRIP PICK',
                     style: AppText.mono(9, color: AppColors.muted),
                   ),
                 ],
@@ -401,7 +391,7 @@ class _PieceRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  formatPrice(piece.price),
+                  piece.price > 0 ? formatPrice(piece.price) : '—',
                   style: AppText.mono(11, color: AppColors.cyan),
                 ),
                 const SizedBox(height: 2),

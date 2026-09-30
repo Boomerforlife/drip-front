@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,43 +10,11 @@ import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/top_bar.dart';
-import '../../data/mock/mock_users.dart';
-import '../../data/models/ootd.dart';
-import '../../data/repositories/studio_repository.dart';
 import '../../routing/main_shell.dart';
-import '../create/create_ootd_controller.dart';
-import '../home/feed_controller.dart';
 import 'photoshoot_controller.dart';
 
 class PhotoshootResultScreen extends ConsumerWidget {
   const PhotoshootResultScreen({super.key});
-
-  Future<void> _postToFeed(
-    BuildContext context,
-    WidgetRef ref,
-    ShootRender r,
-  ) async {
-    final me = MockUsers.me;
-    final post = Ootd(
-      id: 'ootd_${DateTime.now().millisecondsSinceEpoch}',
-      creatorHandle: me.handle,
-      creatorAvatar: me.avatar,
-      image: r.image,
-      title: r.title.split(' · ').first,
-      era: 'AI',
-      score: r.score,
-      likes: 0,
-      saves: 0,
-      tags: const ['#STUDIO', '#AIGEN'],
-      postedAgo: 'JUST NOW',
-      caption: 'Shot in ${r.scene}.',
-    );
-    await ref.read(feedProvider.notifier).publish(post);
-    if (context.mounted) {
-      showDripToast(context, 'Posted to your feed');
-      context.go('/home');
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -96,7 +63,9 @@ class PhotoshootResultScreen extends ConsumerWidget {
                                     ),
                                     const SizedBox(width: 8),
                                     _Chip(
-                                      text: 'FIT SCORE: ${render.score}%',
+                                      text: render.fellBack
+                                          ? 'FIT COLLAGE'
+                                          : 'FIT SCORE: ${render.score}%',
                                       color: accent,
                                     ),
                                   ],
@@ -110,14 +79,17 @@ class PhotoshootResultScreen extends ConsumerWidget {
                       Text(render.title, style: AppText.display(18)),
                       const SizedBox(height: 4),
                       Text(
-                        'GENERATED STUDIO AI RENDER · EST. 2077',
+                        render.fellBack
+                            ? 'GEN FELL BACK TO THE FIT · CREDIT REFUNDED'
+                            : 'GENERATED STUDIO AI RENDER · EST. 2077',
                         style: AppText.mono(11, color: AppColors.cyan),
                       ),
                       const SizedBox(height: 20),
                       AppButton(
                         label: 'POST TO DRIP FEED 🚀',
                         height: 44,
-                        onPressed: () => _postToFeed(context, ref, render),
+                        onPressed: () =>
+                            showAfterBeta(context, 'Posting to the feed'),
                       ),
                       const SizedBox(height: 8),
                       Row(
@@ -140,12 +112,7 @@ class PhotoshootResultScreen extends ConsumerWidget {
                             child: OutlinedAction(
                               label: 'MAKE OOTD ✦',
                               color: AppColors.cyan,
-                              onTap: () {
-                                ref
-                                    .read(createOotdProvider.notifier)
-                                    .setImage(render.image);
-                                context.push('/create');
-                              },
+                              onTap: () => showAfterBeta(context, 'OOTD posts'),
                             ),
                           ),
                         ],
@@ -172,16 +139,7 @@ class PhotoshootResultScreen extends ConsumerWidget {
                               label: 'SHARE FIT',
                               style: AppButtonStyle.subtle,
                               height: 36,
-                              onPressed: () async {
-                                await Clipboard.setData(
-                                  const ClipboardData(
-                                    text: 'https://drip.app/shoot',
-                                  ),
-                                );
-                                if (context.mounted) {
-                                  showDripToast(context, 'Link copied');
-                                }
-                              },
+                              onPressed: () => showAfterBeta(context, 'Sharing'),
                             ),
                           ),
                         ],

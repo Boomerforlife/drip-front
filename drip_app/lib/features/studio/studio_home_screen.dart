@@ -58,14 +58,14 @@ class StudioHomeScreen extends ConsumerWidget {
                         _EntryCard(
                           glyph: '🔄',
                           title: 'REMIX A FIT',
-                          subtitle: 'Swap parts from community trending looks',
+                          subtitle: 'A random fit from the catalogue to riff on',
                           onTap: () {
                             ref.read(studioProvider.notifier)
                               ..useSource(wardrobe: false)
                               ..randomize();
                             showDripToast(
                               context,
-                              'Remixed from a trending look',
+                              'Remixed from the catalogue',
                             );
                             context.push('/studio/builder');
                           },

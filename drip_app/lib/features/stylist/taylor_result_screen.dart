@@ -88,10 +88,14 @@ class TaylorResultScreen extends ConsumerWidget {
                     children: [
                       Expanded(
                         child: AppButton(
-                          label: 'CUSTOMIZE',
+                          label: blueprint.fitId == null
+                              ? 'CUSTOMIZE'
+                              : 'VIEW FIT',
                           style: AppButtonStyle.subtle,
                           height: 36,
-                          onPressed: () => context.push('/studio/builder'),
+                          onPressed: () => blueprint.fitId == null
+                              ? context.push('/studio/builder')
+                              : context.push('/outfit/${blueprint.fitId}'),
                         ),
                       ),
                       const SizedBox(width: 8),

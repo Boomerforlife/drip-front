@@ -7,18 +7,19 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
-import '../../core/theme/app_theme.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
-import '../../data/models/wardrobe.dart';
+import '../../data/api/api_client.dart';
 import 'wardrobe_controller.dart';
 
-/// Garment capture: pick a photo, "detect" the garment, name it and add it to
-/// the wardrobe.
+/// Garment capture: pick a photo and send it. The upload goes straight to
+/// storage; Drip then cuts the garment out and tags it in the background, so
+/// the user never waits on a model. The item shows up in the wardrobe as
+/// "processing" and fills itself in.
 class AddToWardrobeScreen extends ConsumerStatefulWidget {
   const AddToWardrobeScreen({super.key});
 
@@ -29,15 +30,8 @@ class AddToWardrobeScreen extends ConsumerStatefulWidget {
 
 class _AddToWardrobeScreenState extends ConsumerState<AddToWardrobeScreen> {
   final _picker = ImagePicker();
-  final _name = TextEditingController();
   bool _camera = true;
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _name.dispose();
-    super.dispose();
-  }
+  XFile? _file;
 
   Future<void> _pick(ImageSource source) async {
     setState(() => _camera = source == ImageSource.camera);
@@ -48,8 +42,8 @@ class _AddToWardrobeScreenState extends ConsumerState<AddToWardrobeScreen> {
         imageQuality: 88,
       );
       if (file == null) return;
-      _name.clear();
-      await ref.read(captureProvider.notifier).process(file.path);
+      _file = file;
+      ref.read(captureProvider.notifier).pick(file.path);
     } catch (_) {
       if (mounted) {
         showDripToast(
@@ -62,203 +56,127 @@ class _AddToWardrobeScreenState extends ConsumerState<AddToWardrobeScreen> {
     }
   }
 
-  Future<void> _add(String imagePath, GarmentDetection d) async {
-    final name = _name.text.trim().isEmpty ? d.name : _name.text.trim();
-    setState(() => _saving = true);
-    final item = WardrobeItem(
-      id: 'w_${DateTime.now().millisecondsSinceEpoch}',
-      name: name,
-      category: d.category,
-      image: imagePath,
-      status: 'EXTRACTED · 3D READY',
-      tags: d.tags,
-    );
-    await ref.read(wardrobeProvider.notifier).add(item);
+  Future<void> _send() async {
+    final file = _file;
+    if (file == null) return;
+    final type =
+        imageContentType(file.name) ??
+        imageContentType(file.path) ??
+        file.mimeType;
+    if (type == null ||
+        !const {'image/jpeg', 'image/png', 'image/webp'}.contains(type)) {
+      showDripToast(context, 'Use a JPG, PNG or WebP photo');
+      return;
+    }
+    final bytes = await file.readAsBytes();
+    final item = await ref.read(captureProvider.notifier).send(bytes, type);
     if (!mounted) return;
-    showDripToast(context, 'Added to wardrobe');
+    if (item == null) {
+      final err = ref.read(captureProvider).upload.error;
+      showDripToast(
+        context,
+        err is ApiException ? err.friendly : 'Upload failed. Try again.',
+      );
+      return;
+    }
+    showDripToast(context, 'Uploaded. Drip is cutting it out now');
     context.go('/wardrobe');
   }
 
   @override
   Widget build(BuildContext context) {
     final capture = ref.watch(captureProvider);
-    final accent = context.palette.accent;
     final bottom = math.max(MediaQuery.paddingOf(context).bottom, 8.0);
-    final detection = capture.detection.value;
     final path = capture.imagePath;
+    final sending = capture.upload.isLoading;
 
-    return Scaffold(
-      backgroundColor: AppColors.base,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            DripTopBar(
-              title: 'GARMENT CAPTURE',
-              leading: const BackGlyph(),
-              trailing: GlyphButton(
-                '⚡',
-                label: 'Detection engine',
-                onTap: () => showDripToast(context, 'Auto-detect is on'),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ModeButton(
-                      label: 'TAKE PHOTO 📸',
-                      active: _camera,
-                      onTap: () => _pick(ImageSource.camera),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _ModeButton(
-                      label: 'CHOOSE FROM LIBRARY',
-                      active: !_camera,
-                      onTap: () => _pick(ImageSource.gallery),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      // Swipe left to leave the camera, back to Home (like Instagram).
+      onHorizontalDragEnd: (d) {
+        if ((d.primaryVelocity ?? 0) < -500 && !sending && context.canPop()) {
+          context.pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.base,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              const DripTopBar(title: 'GARMENT CAPTURE', leading: BackGlyph()),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    Text(
-                      capture.detection.isLoading
-                          ? 'CALIBRATING BOUNDING BOX...'
-                          : path == null
-                          ? 'WAITING FOR A GARMENT PHOTO'
-                          : 'BOUNDING BOX LOCKED',
-                      style: AppText.mono(9, color: AppColors.muted),
+                    Expanded(
+                      child: _ModeButton(
+                        label: 'TAKE PHOTO 📸',
+                        active: _camera,
+                        onTap: sending ? null : () => _pick(ImageSource.camera),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    _Canvas(
-                      path: path,
-                      loading: capture.detection.isLoading,
-                      detection: detection,
-                    ),
-                    const SizedBox(height: 16),
-                    if (capture.detection.hasError)
-                      ErrorState(
-                        message: 'Detection failed. Try another photo.',
-                        onRetry: () => path == null
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _ModeButton(
+                        label: 'CHOOSE FROM LIBRARY',
+                        active: !_camera,
+                        onTap: sending
                             ? null
-                            : ref.read(captureProvider.notifier).process(path),
-                      )
-                    else if (detection != null && path != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.elevated),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'IS THIS YOUR ${detection.category.toUpperCase() == 'OUTERWEAR' ? 'JACKET' : 'GARMENT'}?',
-                              style: AppText.display(14),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Taylor has extracted: "${detection.name}". Rename it below if it isn\'t right.',
-                              style: AppText.manrope(
-                                12,
-                                color: AppColors.muted,
-                                lineHeight: 17,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.base,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppColors.elevated),
-                              ),
-                              child: TextField(
-                                controller: _name,
-                                cursorColor: accent,
-                                style: AppText.manrope(13),
-                                decoration: InputDecoration(
-                                  isCollapsed: true,
-                                  border: InputBorder.none,
-                                  hintText: detection.name,
-                                  hintStyle: AppText.manrope(
-                                    13,
-                                    color: AppColors.muted,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                for (final t in detection.tags)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.elevated,
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      t,
-                                      style: AppText.mono(
-                                        8,
-                                        color: AppColors.cyan,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ],
-                        ),
+                            : () => _pick(ImageSource.gallery),
                       ),
-                    ] else if (path == null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Text(
-                          'Lay the piece flat in good light, then take a photo or pick one from your library. Taylor will digitize it for the look-builder.',
-                          style: AppText.manrope(
-                            12,
-                            color: AppColors.muted,
-                            lineHeight: 18,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 16),
+                    ),
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 16),
-              child: AppButton(
-                label: 'ADD TO WARDROBE ✦',
-                height: 44,
-                loading: _saving,
-                onPressed: detection != null && path != null
-                    ? () => _add(path, detection)
-                    : null,
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        sending
+                            ? 'UPLOADING...'
+                            : path == null
+                            ? 'WAITING FOR A GARMENT PHOTO'
+                            : 'READY TO DIGITIZE',
+                        style: AppText.mono(9, color: AppColors.muted),
+                      ),
+                      const SizedBox(height: 8),
+                      _Canvas(path: path, sending: sending),
+                      const SizedBox(height: 16),
+                      Text(
+                        path == null
+                            ? 'Lay the piece flat in good light (or wear it), '
+                                  'then take a photo or pick one from your '
+                                  'library.'
+                            : 'Drip cuts the garment out of the photo and tags '
+                                  'its category, colour and season. It takes a '
+                                  'moment, and you can keep using the app while '
+                                  'it works.',
+                        style: AppText.manrope(
+                          12,
+                          color: AppColors.muted,
+                          lineHeight: 18,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+              Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, bottom + 16),
+                child: AppButton(
+                  label: 'ADD TO WARDROBE ✦',
+                  height: 44,
+                  loading: sending,
+                  onPressed: path != null ? _send : null,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -273,7 +191,7 @@ class _ModeButton extends StatelessWidget {
   });
   final String label;
   final bool active;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -301,19 +219,14 @@ class _ModeButton extends StatelessWidget {
 }
 
 class _Canvas extends StatelessWidget {
-  const _Canvas({
-    required this.path,
-    required this.loading,
-    required this.detection,
-  });
+  const _Canvas({required this.path, required this.sending});
   final String? path;
-  final bool loading;
-  final GarmentDetection? detection;
+  final bool sending;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 280,
+      height: 320,
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(24),
@@ -325,65 +238,11 @@ class _Canvas extends StatelessWidget {
           : Stack(
               fit: StackFit.expand,
               children: [
-                DripImage(path!),
-                if (loading)
+                DripImage(path!, fit: BoxFit.contain),
+                if (sending)
                   const ColoredBox(
                     color: Color(0x990E1018),
-                    child: LoadingState(label: 'ANALYZING GARMENT...'),
-                  ),
-                if (detection != null)
-                  Positioned(
-                    left: 32,
-                    top: 24,
-                    right: 32,
-                    bottom: 24,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.cyan),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned(
-                            left: 8,
-                            top: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.cyan,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'DETECTED: ${detection!.label}',
-                                style: AppText.mono(8, color: AppColors.base),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: context.palette.accent,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                '${detection!.confidence}% CONFIDENCE',
-                                style: AppText.mono(8, color: AppColors.base),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    child: LoadingState(label: 'UPLOADING...'),
                   ),
               ],
             ),

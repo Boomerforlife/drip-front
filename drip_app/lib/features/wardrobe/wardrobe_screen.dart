@@ -14,13 +14,20 @@ import '../../data/models/wardrobe.dart';
 import '../../routing/main_shell.dart';
 import 'wardrobe_controller.dart';
 
-/// Groups garments the way the wardrobe grid labels them.
-String sectionFor(WardrobeItem i) => switch (i.category) {
-  'Boots' => 'BOOTS',
-  'Accessories' => 'ACCESSORIES',
-  'Bottoms' => 'BOTTOMS',
-  _ => 'TOPS & OUTERWEAR',
-};
+/// Groups garments the way the wardrobe grid labels them. Uploads still
+/// being processed (or that failed) sit together at the top.
+String sectionFor(WardrobeItem i) {
+  if (i.isProcessing) return 'PROCESSING';
+  if (i.isFailed) return 'NEEDS A BETTER PHOTO';
+  return switch (i.category) {
+    'Boots' || 'Shoes' => 'SHOES',
+    'Accessories' => 'ACCESSORIES',
+    'Bottoms' => 'BOTTOMS',
+    'Dresses' => 'DRESSES',
+    'Unsorted' => 'UNSORTED',
+    _ => 'TOPS & OUTERWEAR',
+  };
+}
 
 class WardrobeScreen extends ConsumerStatefulWidget {
   const WardrobeScreen({super.key});
@@ -32,6 +39,14 @@ class WardrobeScreen extends ConsumerStatefulWidget {
 class _WardrobeScreenState extends ConsumerState<WardrobeScreen> {
   bool _rotationTab = false;
   bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (mounted) ref.read(wardrobeProvider.notifier).refreshIfStale();
+    });
+  }
 
   Future<void> _remove(WardrobeItem item) async {
     final ok = await showDripConfirm(
@@ -115,7 +130,7 @@ class _WardrobeScreenState extends ConsumerState<WardrobeScreen> {
                         : 'YOUR CLOSET IS EMPTY',
                     message: _rotationTab
                         ? 'Mark garments with ⚡ on their page to keep your most-worn pieces here.'
-                        : 'Capture your first garment and Taylor will digitize it.',
+                        : 'Photograph a piece you own and Drip will cut it out and tag it.',
                     actionLabel: _rotationTab ? null : 'UPLOAD GARMENT',
                     onAction: () => context.push('/wardrobe/capture'),
                   );
@@ -247,7 +262,17 @@ class GarmentCard extends StatelessWidget {
                   child: SizedBox(
                     height: 100,
                     width: double.infinity,
-                    child: DripImage(item.image),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        DripImage(item.image),
+                        if (item.isProcessing)
+                          const ColoredBox(
+                            color: Color(0x990E1018),
+                            child: LoadingState(compact: true),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 if (editing)
@@ -282,7 +307,10 @@ class GarmentCard extends StatelessWidget {
               item.status,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppText.mono(8, color: AppColors.muted),
+              style: AppText.mono(
+                8,
+                color: item.isFailed ? AppColors.red : AppColors.muted,
+              ),
             ),
           ],
         ),

@@ -49,7 +49,7 @@ class _CommentsBodyState extends ConsumerState<_CommentsBody> {
     setState(() => _sending = true);
     Haptics.commit();
     _text.clear();
-    await ref.read(feedProvider.notifier).addComment(widget.ootdId, value);
+    await ref.read(postsProvider.notifier).addComment(widget.ootdId, value);
     if (mounted) setState(() => _sending = false);
   }
 
@@ -267,7 +267,7 @@ class _ShareBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final people = ref.watch(suggestedCreatorsProvider);
-    final feed = ref.read(feedProvider.notifier);
+    final feed = ref.read(postsProvider.notifier);
     return SheetContent(
       title: 'SHARE FIT',
       subtitle: '${post.title} · @${post.creatorHandle}',

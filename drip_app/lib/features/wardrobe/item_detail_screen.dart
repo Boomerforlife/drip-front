@@ -7,16 +7,17 @@ import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/app_button.dart';
-import '../../core/widgets/controls.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/api/api_client.dart';
+import '../../data/models/meta.dart';
+import '../../data/models/stylist.dart';
 import '../../data/models/wardrobe.dart';
 import '../../data/providers.dart';
 import '../../routing/main_shell.dart';
-import '../outfits/outfit_controller.dart';
 import '../studio/studio_controller.dart';
 import 'wardrobe_controller.dart';
 
@@ -24,72 +25,81 @@ class ItemDetailScreen extends ConsumerWidget {
   const ItemDetailScreen({super.key, required this.itemId});
   final String itemId;
 
+  /// Corrects the tags: only the category and colour are editable, and only
+  /// with values from `GET /meta`.
   Future<void> _edit(
     BuildContext context,
     WidgetRef ref,
     WardrobeItem item,
   ) async {
-    final name = TextEditingController(text: item.name);
-    final brand = TextEditingController(text: item.brand);
-    final colorway = TextEditingController(text: item.colorway);
-    final price = TextEditingController(
-      text: item.price == 0 ? '' : item.price.toStringAsFixed(0),
+    if (item.isProcessing) {
+      showDripToast(context, 'Still processing, edit it once it\'s ready');
+      return;
+    }
+    final AppMeta meta;
+    try {
+      meta = await ref.read(metaProvider.future);
+    } catch (_) {
+      if (context.mounted) showDripToast(context, "Couldn't load the options");
+      return;
+    }
+    if (!context.mounted) return;
+    var slot = item.slot;
+    var colour = item.colorway.isEmpty ? null : item.colorway.toLowerCase();
+
+    Widget chip(String label, bool selected, VoidCallback onTap) => Tap(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? context.palette.accent : AppColors.elevated,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: AppText.manrope(
+            12,
+            weight: FontWeight.w600,
+            color: selected ? AppColors.base : AppColors.cream,
+          ),
+        ),
+      ),
     );
-    var category = item.category;
+
     final result = await showDripSheet<bool>(
       context,
+      scrollable: true,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSheet) => SheetContent(
-          title: 'EDIT ITEM',
+          title: 'FIX THE TAGS',
+          subtitle: 'Drip tagged this automatically. Correct it if it\'s off.',
           children: [
-            DripField(controller: name, hint: 'Name', radius: 14),
-            const SizedBox(height: 10),
-            DripField(controller: brand, hint: 'Brand', radius: 14),
-            const SizedBox(height: 10),
-            DripField(controller: colorway, hint: 'Colorway', radius: 14),
-            const SizedBox(height: 10),
-            DripField(
-              controller: price,
-              hint: 'Price',
-              radius: 14,
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 14),
+            const SectionLabel('CATEGORY', size: 9, letterSpacing: 0),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final c in const [
-                  'Outerwear',
-                  'Tops',
-                  'Bottoms',
-                  'Boots',
-                  'Accessories',
-                ])
-                  Tap(
-                    onTap: () => setSheet(() => category = c),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: category == c
-                            ? ctx.palette.accent
-                            : AppColors.elevated,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        c,
-                        style: AppText.manrope(
-                          12,
-                          weight: FontWeight.w600,
-                          color: category == c
-                              ? AppColors.base
-                              : AppColors.cream,
-                        ),
-                      ),
-                    ),
+                for (final c in meta.slots)
+                  chip(
+                    WardrobeItem.categoryLabel(c),
+                    slot == c,
+                    () => setSheet(() => slot = c),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const SectionLabel('COLOUR', size: 9, letterSpacing: 0),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final c in meta.colourFamilies)
+                  chip(
+                    '${c[0].toUpperCase()}${c.substring(1)}',
+                    colour == c,
+                    () => setSheet(() => colour = c),
                   ),
               ],
             ),
@@ -103,24 +113,18 @@ class ItemDetailScreen extends ConsumerWidget {
         ),
       ),
     );
-    if (result == true && name.text.trim().isNotEmpty) {
+    if (result != true) return;
+    final changedSlot = slot != item.slot ? slot : null;
+    final changedColour = colour != item.colorway.toLowerCase() ? colour : null;
+    if (changedSlot == null && changedColour == null) return;
+    try {
       await ref
           .read(wardrobeProvider.notifier)
-          .edit(
-            item.copyWith(
-              name: name.text.trim(),
-              brand: brand.text.trim(),
-              colorway: colorway.text.trim(),
-              category: category,
-              price: double.tryParse(price.text.trim()) ?? item.price,
-            ),
-          );
+          .retag(item.id, slot: changedSlot, colour: changedColour);
       if (context.mounted) showDripToast(context, 'Item updated');
+    } on ApiException catch (e) {
+      if (context.mounted) showDripToast(context, e.friendly);
     }
-    name.dispose();
-    brand.dispose();
-    colorway.dispose();
-    price.dispose();
   }
 
   @override
@@ -191,17 +195,6 @@ class _Body extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = context.palette.accent;
-    final catalog = ref.watch(outfitCatalogProvider).value ?? const [];
-    // Looks that share a tag with this garment, otherwise the trending ones.
-    final tags = item.tags.map((t) => t.toLowerCase()).toSet();
-    final related = catalog
-        .where(
-          (o) =>
-              o.tags.any((t) => tags.any((x) => x.contains(t.toLowerCase()))),
-        )
-        .take(2)
-        .toList();
-    final featuring = related.length == 2 ? related : catalog.take(2).toList();
 
     return SingleChildScrollView(
       child: Column(
@@ -213,10 +206,29 @@ class _Body extends ConsumerWidget {
               child: SizedBox(
                 height: 260,
                 width: double.infinity,
-                child: DripImage(item.image),
+                child: ColoredBox(
+                  color: AppColors.surface,
+                  child: DripImage(item.image, fit: BoxFit.contain),
+                ),
               ),
             ),
           ),
+          if (!item.isReady)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Text(
+                item.isProcessing
+                    ? 'Drip is cutting this out and tagging it. It updates '
+                          'by itself in a moment.'
+                    : "Drip couldn't find a garment in this photo. Remove it "
+                          'and try a clearer, well-lit shot.',
+                style: AppText.manrope(
+                  12,
+                  color: item.isFailed ? AppColors.red : AppColors.muted,
+                  lineHeight: 17,
+                ),
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -248,8 +260,8 @@ class _Body extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: _Prop(
-                        'KNOW BRAND',
-                        item.brand.isEmpty ? '—' : item.brand,
+                        'SOURCE',
+                        item.origin == 'saved' ? 'From Drip' : 'Your photo',
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -302,82 +314,35 @@ class _Body extends ConsumerWidget {
               borderRadius: BorderRadius.circular(24),
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SectionLabel('OUTFITS FEATURING THIS FIT'),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    for (var i = 0; i < featuring.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 12),
-                      Expanded(
-                        child: Tap(
-                          onTap: () =>
-                              context.push('/outfit/${featuring[i].id}'),
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppColors.elevated),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: SizedBox(
-                                    height: 120,
-                                    width: double.infinity,
-                                    child: DripImage(featuring[i].image),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  featuring[i].title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppText.manrope(
-                                    11,
-                                    weight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.only(top: 8),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(
               children: [
                 AppButton(
                   label: 'CREATE FIT WITH THIS ✦',
                   height: 44,
-                  onPressed: () {
-                    final studio = ref.read(studioProvider.notifier)
-                      ..useSource(wardrobe: true);
-                    studio.select(studioPieceFromWardrobe(item));
-                    context.push('/studio/builder');
-                  },
+                  onPressed: item.isReady && item.slot != null
+                      ? () {
+                          final category = StudioSlots.label(item.slot!);
+                          ref.read(studioProvider.notifier)
+                            ..useSource(wardrobe: true)
+                            ..setCategory(category)
+                            ..select(
+                              StudioPiece(
+                                id: item.id,
+                                name: item.name,
+                                category: category,
+                                image: item.image,
+                                source: 'wardrobe',
+                              ),
+                            );
+                          context.push('/studio/builder');
+                        }
+                      : null,
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: _Outlined(
-                        label: 'EDIT ITEM',
+                        label: 'FIX TAGS',
                         color: AppColors.cream,
                         border: AppColors.muted,
                         onTap: onEdit,

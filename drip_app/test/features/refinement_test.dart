@@ -5,9 +5,11 @@ import 'package:drip/core/theme/app_text.dart';
 import 'package:drip/core/theme/drip_skin.dart';
 import 'package:drip/core/widgets/fit_hero.dart';
 import 'package:drip/core/widgets/tap.dart';
+import 'package:drip/data/mock/mock_content.dart';
 import 'package:drip/data/providers.dart';
+import 'package:drip/data/repositories/feed_repository.dart';
+import 'package:drip/features/outfits/outfit_controller.dart';
 import 'package:drip/features/scroll/fashion_scroll_screen.dart';
-import 'package:drip/features/home/feed_controller.dart';
 import 'package:drip/features/settings/settings_controller.dart';
 import 'package:drip/routing/app_router.dart';
 import 'package:flutter/foundation.dart';
@@ -16,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/fakes.dart';
 import '../test_fonts.dart';
 
 /// Covers the refinement pass: floating nav (tap + swipe), Home → Fashion
@@ -42,9 +45,9 @@ void main() {
     WidgetTester t, {
     bool signedIn = true,
     DripSkin? skin,
+    FeedRepository? feed,
   }) async {
     SharedPreferences.setMockInitialValues({
-      if (signedIn) 'session.signedIn': true,
       if (signedIn) 'session.onboarded': true,
       if (skin != null) 'settings.skin': skin.id,
     });
@@ -54,7 +57,7 @@ void main() {
     addTearDown(t.view.reset);
     await t.pumpWidget(
       ProviderScope(
-        overrides: [sharedPreferencesProvider.overrideWithValue(sp)],
+        overrides: testOverrides(sp, signedIn: signedIn, feed: feed),
         retry: (_, _) => null,
         child: const DripApp(),
       ),
@@ -110,13 +113,23 @@ void main() {
       }
     });
 
-    testWidgets('the create button pushes the composer, not a tab', (t) async {
+    testWidgets('the centre star opens Studio, not a tab', (t) async {
       await openHome(t);
       final h = t.ensureSemantics();
-      await t.tap(find.bySemanticsLabel('Create'));
+      expect(find.bySemanticsLabel('Create'), findsNothing);
+      await t.tap(find.bySemanticsLabel('Studio'));
       await settle(t);
-      // Pushed routes don't change go_router's reported URL: assert on content.
-      expect(find.text('CREATE LOOK'), findsOneWidget);
+      // Pushed routes keep go_router's URL: assert on content.
+      expect(find.text('DRIP STUDIO'), findsOneWidget);
+      h.dispose();
+    });
+
+    testWidgets('the + on Home opens the camera', (t) async {
+      await openHome(t);
+      final h = t.ensureSemantics();
+      await t.tap(find.bySemanticsLabel('Open the camera'));
+      await settle(t);
+      expect(find.text('GARMENT CAPTURE'), findsOneWidget);
       h.dispose();
     });
 
@@ -215,34 +228,31 @@ void main() {
       expect(loc(container), '/home');
     });
 
-    testWidgets('swiping right on Home (first tab) stays on Home', (t) async {
+    testWidgets('swiping right on Home opens the camera', (t) async {
       await openHome(t);
       await swipe(t, const Offset(280, 430), 300);
-      expect(loc(container), '/home');
+      expect(find.text('GARMENT CAPTURE'), findsOneWidget);
     });
 
-    testWidgets('swiping the stories row scrolls it instead of switching', (
-      t,
-    ) async {
+    testWidgets('only your own story circle is shown in v1', (t) async {
       await openHome(t);
-      final stories = find.text('Your story');
-      await swipe(t, t.getCenter(stories) + const Offset(200, -10), -260);
-      expect(loc(container), '/home');
+      expect(find.text('Your story'), findsOneWidget);
+      expect(find.text('@sofiamae'), findsNothing);
     });
   });
 
   group('home → fashion scroll', () {
-    testWidgets('tapping the featured fit opens the Scroll on that fit', (
+    testWidgets('tapping a fresh fit opens the Scroll on that fit', (
       t,
     ) async {
       await openHome(t);
       expect(find.byType(FitHero), findsWidgets);
-      await t.ensureVisible(find.text('Chrome Heavyweights Fit'));
+      await t.ensureVisible(find.text('PASTEL SHOCK'));
       await settle(t, 300);
-      await t.tap(find.text('Chrome Heavyweights Fit'));
+      await t.tap(find.text('PASTEL SHOCK'));
       await settle(t, 900);
       expect(find.byType(FashionScrollScreen), findsOneWidget);
-      expect(find.text('CHROME HEAVYWEIGHTS FIT'), findsOneWidget);
+      expect(find.text('2 / 3+'), findsOneWidget);
       // Back returns Home (the Scroll was pushed over it).
       container.read(routerProvider).pop();
       await settle(t, 700);
@@ -254,92 +264,115 @@ void main() {
     testWidgets('opening on a specific fit starts there', (t) async {
       await boot(t);
       await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_moto');
+      container.read(routerProvider).go('/scroll?id=o_gray');
       await settle(t, 900);
-      expect(find.text('MOTO NIGHT FLARE'), findsOneWidget);
-      expect(find.text('2 / 5'), findsOneWidget);
+      expect(find.text('GRAY OVERCOAT'), findsOneWidget);
+      expect(find.text('3 / 3+'), findsOneWidget);
     });
 
     testWidgets('double-tap likes with feedback', (t) async {
       await boot(t);
       await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_moto');
+      container.read(routerProvider).go('/scroll?id=o_gray');
       await settle(t, 900);
-      expect(container.read(ootdProvider('ootd_moto'))!.isLiked, isFalse);
+      expect(container.read(fitMarksProvider).isLiked('o_gray'), isFalse);
       final centre = t.getCenter(find.byType(FitHero));
       await t.tapAt(centre);
       await t.pump(const Duration(milliseconds: 60));
       await t.tapAt(centre);
       await settle(t, 300);
-      expect(container.read(ootdProvider('ootd_moto'))!.isLiked, isTrue);
+      expect(container.read(fitMarksProvider).isLiked('o_gray'), isTrue);
     });
 
-    testWidgets('swiping up snaps to the next fit', (t) async {
-      await boot(t);
-      await settle(t, 1600);
-      container.read(routerProvider).go('/scroll');
-      await settle(t, 900);
-      expect(find.text('1 / 5'), findsOneWidget);
-      await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
-      await settle(t, 900);
-      expect(find.text('2 / 5'), findsOneWidget);
-    });
-
-    testWidgets('save gives feedback and persists on the post', (t) async {
-      await boot(t);
-      await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_moto');
-      await settle(t, 900);
-      await t.tap(tapLabelled('Save'));
-      await settle(t, 400);
-      expect(container.read(ootdProvider('ootd_moto'))!.isSaved, isTrue);
-      expect(find.text('SAVED TO YOUR VAULT'), findsOneWidget);
-    });
-
-    testWidgets('comments sheet lists comments and posts a new one', (t) async {
-      await boot(t);
-      await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_moto');
-      await settle(t, 900);
-      final before = container.read(ootdProvider('ootd_moto'))!.comments;
-      await t.tap(tapLabelled('Comments'));
-      await settle(t, 900);
-      expect(find.text('COMMENTS'), findsOneWidget);
-      expect(find.textContaining('proportions are unreal'), findsOneWidget);
-      await t.enterText(find.byType(TextField), 'Instant classic');
-      await t.pump();
-      await t.tap(tapLabelled('Post comment'));
-      await settle(t, 600);
-      expect(find.text('Instant classic'), findsOneWidget);
-      expect(container.read(ootdProvider('ootd_moto'))!.comments, before + 1);
-    });
-
-    testWidgets('share sheet copies a link and counts the share', (t) async {
-      await boot(t);
-      await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_moto');
-      await settle(t, 900);
-      final before = container.read(ootdProvider('ootd_moto'))!.shares;
-      await t.tap(tapLabelled('Share'));
-      await settle(t, 900);
-      expect(find.text('SHARE FIT'), findsOneWidget);
-      await t.tap(tapLabelled('Copy link'));
-      await settle(t, 600);
-      expect(find.text('LINK COPIED'), findsOneWidget);
-      expect(container.read(ootdProvider('ootd_moto'))!.shares, before + 1);
-    });
-
-    testWidgets('the reel loops from the last fit back to the first', (
+    testWidgets('swiping up snaps to the next fit and reports the last', (
       t,
     ) async {
       await boot(t);
       await settle(t, 1600);
-      container.read(routerProvider).go('/scroll?id=ootd_paris');
+      container.read(routerProvider).go('/scroll');
       await settle(t, 900);
-      expect(find.text('5 / 5'), findsOneWidget);
+      expect(find.text('1 / 3+'), findsOneWidget);
       await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
       await settle(t, 900);
-      expect(find.text('1 / 5'), findsOneWidget);
+      // Near the end of a page, the next one is already loading in.
+      expect(find.text('2 / 6+'), findsOneWidget);
+      final feed = container.read(feedRepositoryProvider) as MockFeedRepository;
+      expect(feed.signals, contains(('o_baggy', 'skip')));
+    });
+
+    testWidgets('save gives feedback and lands in the library', (t) async {
+      await boot(t);
+      await settle(t, 1600);
+      container.read(routerProvider).go('/scroll?id=o_gray');
+      await settle(t, 900);
+      await t.tap(tapLabelled('Save'));
+      await settle(t, 400);
+      expect(container.read(fitMarksProvider).isSaved('o_gray'), isTrue);
+      expect(find.text('SAVED TO YOUR VAULT'), findsOneWidget);
+      // The library refetches (with the saved fit) and the toast times out.
+      await settle(t, 3000);
+      final lib = container.read(libraryProvider).requireValue;
+      expect(lib.saved.map((o) => o.id), contains('o_gray'));
+    });
+
+    testWidgets('comments and sharing say they come after the beta', (
+      t,
+    ) async {
+      await boot(t);
+      await settle(t, 1600);
+      container.read(routerProvider).go('/scroll?id=o_gray');
+      await settle(t, 900);
+      await t.tap(tapLabelled('Share'));
+      await settle(t, 300);
+      expect(find.text('SHARING IS COMING AFTER BETA ✦'), findsOneWidget);
+      expect(find.text('SHARE FIT'), findsNothing, reason: 'no sheet opened');
+      await settle(t, 2600); // the toast times out
+      await t.tap(tapLabelled('Comments'));
+      await settle(t, 300);
+      expect(find.text('COMMENTS IS COMING AFTER BETA ✦'), findsOneWidget);
+      expect(find.text('COMMENTS'), findsNothing, reason: 'no sheet opened');
+    });
+
+    testWidgets('scrolling past the last loaded fit fetches the next page', (
+      t,
+    ) async {
+      await boot(t);
+      await settle(t, 1600);
+      container.read(routerProvider).go('/scroll?id=o_gray');
+      await settle(t, 900);
+      expect(find.text('3 / 3+'), findsOneWidget);
+      await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
+      await settle(t, 1200);
+      expect(find.text('TOKYO NEON GRID'), findsOneWidget);
+      expect(find.text('4 / 6+'), findsOneWidget);
+    });
+
+    testWidgets('the end of the feed is a caught-up card', (t) async {
+      await boot(
+        t,
+        feed: MockFeedRepository(
+          outfits: MockContent.outfits.take(2).toList(),
+        ),
+      );
+      await settle(t, 1600);
+      container.read(routerProvider).go('/scroll?id=o_pastel');
+      await settle(t, 900);
+      expect(find.text('2 / 2'), findsOneWidget);
+      await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
+      await settle(t, 900);
+      expect(find.text("YOU'RE ALL CAUGHT UP"), findsOneWidget);
+    });
+
+    testWidgets('an empty catalogue says fits are on their way', (t) async {
+      await boot(
+        t,
+        feed: MockFeedRepository(outfits: const []),
+      );
+      await settle(t, 1600);
+      expect(find.text('FRESH FITS INCOMING'), findsOneWidget);
+      container.read(routerProvider).go('/scroll');
+      await settle(t, 900);
+      expect(find.text('FRESH FITS INCOMING'), findsOneWidget);
     });
   });
 
@@ -397,13 +430,19 @@ void main() {
       expect(AppColors.surface, defaultSurface);
     });
 
-    testWidgets('search moved off Home into Discover', (t) async {
+    testWidgets('search & discover say they come after the beta', (t) async {
       await openHome(t);
       final h = t.ensureSemantics();
       expect(find.bySemanticsLabel('Search'), findsNothing);
+      await t.ensureVisible(find.text('SEARCH & DISCOVER  →'));
+      await settle(t, 300);
       await t.tap(find.text('SEARCH & DISCOVER  →'));
-      await settle(t, 900);
-      expect(find.text('Search fits, vibes, eras...'), findsOneWidget);
+      await settle(t, 400);
+      expect(
+        find.text('SEARCH & DISCOVER IS COMING AFTER BETA ✦'),
+        findsOneWidget,
+      );
+      expect(loc(container), '/home');
       h.dispose();
     });
 
@@ -452,7 +491,6 @@ void main() {
     Future<void> bootWithIcons(WidgetTester t, {DripSkin? skin}) async {
       icons = _FakeIcons();
       SharedPreferences.setMockInitialValues({
-        'session.signedIn': true,
         'session.onboarded': true,
         if (skin != null) 'settings.skin': skin.id,
       });
@@ -463,7 +501,7 @@ void main() {
       await t.pumpWidget(
         ProviderScope(
           overrides: [
-            sharedPreferencesProvider.overrideWithValue(sp),
+            ...testOverrides(sp, signedIn: true),
             appIconServiceProvider.overrideWithValue(icons),
           ],
           retry: (_, _) => null,

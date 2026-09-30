@@ -11,13 +11,11 @@ import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../core/widgets/states.dart';
+import '../../data/api/api_client.dart';
 import '../../data/mock/mock_content.dart';
-import '../../data/mock/mock_users.dart';
-import '../../data/models/outfit.dart';
 import '../../data/models/stylist.dart';
 import '../../routing/main_shell.dart';
-import '../outfits/outfit_controller.dart';
-import '../wardrobe/wardrobe_controller.dart';
 import 'studio_controller.dart';
 
 class OutfitBuilderScreen extends ConsumerStatefulWidget {
@@ -29,7 +27,7 @@ class OutfitBuilderScreen extends ConsumerStatefulWidget {
 }
 
 class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
-  bool _publishing = false;
+  bool _saving = false;
 
   Future<void> _pickCategory() async {
     final current = ref.read(studioProvider).category;
@@ -38,7 +36,7 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
       builder: (ctx) => SheetContent(
         title: 'SWAP CATEGORY',
         children: [
-          for (final c in MockContent.studioCategories)
+          for (final c in StudioSlots.categories)
             Tap(
               onTap: () => Navigator.of(ctx).pop(c),
               child: Container(
@@ -64,49 +62,40 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
     if (chosen != null) ref.read(studioProvider.notifier).setCategory(chosen);
   }
 
-  Future<void> _publish() async {
+  /// Saves the canvas as a private fit in the user's studio. The server
+  /// scores it (the drip rate needs at least two pieces).
+  Future<void> _save() async {
     final studio = ref.read(studioProvider);
     if (studio.worn.isEmpty) {
       showDripToast(context, 'Add at least one piece first');
       return;
     }
-    setState(() => _publishing = true);
-    final rate = ref.read(studioDripRateProvider);
-    final n = (ref.read(outfitCatalogProvider).value?.length ?? 0) + 1;
-    final look = Outfit(
-      id: 'o_studio_${DateTime.now().millisecondsSinceEpoch}',
-      title: 'STUDIO FIT #$n',
-      image: MockContent.builderModel,
-      price: studio.total,
-      rate: rate,
-      creatorHandle: MockUsers.meHandle,
-      tags: const ['STUDIO', 'CUSTOM'],
-      categories: const ['Y2K', 'STREET'],
-      pieces: [
-        for (final e in studio.worn.entries)
-          OutfitPiece(
-            slot: e.key == 'FOOTWEAR' ? 'SHOES' : e.key,
-            name: e.value.name,
-            brand: 'Drip Studio',
-            price: e.value.price,
-          ),
-      ],
-    );
-    await ref.read(outfitCatalogProvider.notifier).add(look);
-    if (!mounted) return;
-    setState(() => _publishing = false);
-    showDripToast(context, 'Look published');
-    context.push('/outfit/${look.id}');
+    setState(() => _saving = true);
+    try {
+      final fit = await ref.read(studioProvider.notifier).save();
+      if (!mounted) return;
+      showDripToast(
+        context,
+        fit.dripRate == null
+            ? 'Saved to your studio'
+            : 'Saved · drip rate ${fit.dripRate}',
+      );
+    } on ApiException catch (e) {
+      if (mounted) showDripToast(context, e.friendly);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final studio = ref.watch(studioProvider);
     final controller = ref.read(studioProvider.notifier);
-    final rate = ref.watch(studioDripRateProvider);
+    final rate = studio.dripRate;
     final accent = context.palette.accent;
-    ref.watch(wardrobeProvider); // keep wardrobe pieces warm for the picker
-    final pieces = controller.piecesFor(studio.category);
+    final pieces = ref.watch(
+      studioPiecesProvider((studio.category, studio.fromWardrobe)),
+    );
 
     return ShellPage(
       child: Column(
@@ -161,7 +150,9 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
                               child: AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 200),
                                 child: Text(
-                                  'DRIP RATE: $rate%',
+                                  rate == null
+                                      ? 'DRIP RATE: SAVE TO SCORE'
+                                      : 'DRIP RATE: $rate%',
                                   key: ValueKey(rate),
                                   style: AppText.mono(8, color: accent),
                                 ),
@@ -250,31 +241,49 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
                         const SizedBox(height: 12),
                         SizedBox(
                           height: 80,
-                          child: pieces.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    studio.fromWardrobe
-                                        ? 'NO ${studio.category} IN YOUR WARDROBE YET'
-                                        : 'NOTHING IN ${studio.category}',
-                                    style: AppText.mono(
-                                      9,
-                                      color: AppColors.muted,
+                          child: pieces.when(
+                            loading: () => const LoadingState(compact: true),
+                            error: (e, _) => Center(
+                              child: Tap(
+                                onTap: () => ref.invalidate(
+                                  studioPiecesProvider((
+                                    studio.category,
+                                    studio.fromWardrobe,
+                                  )),
+                                ),
+                                child: Text(
+                                  "COULDN'T LOAD PIECES · TAP TO RETRY",
+                                  style: AppText.mono(9, color: AppColors.red),
+                                ),
+                              ),
+                            ),
+                            data: (list) => list.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      studio.fromWardrobe
+                                          ? 'NO ${studio.category} IN YOUR WARDROBE YET'
+                                          : 'NO ${studio.category} IN THE CATALOGUE YET',
+                                      textAlign: TextAlign.center,
+                                      style: AppText.mono(
+                                        9,
+                                        color: AppColors.muted,
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: list.length,
+                                    separatorBuilder: (_, _) =>
+                                        const SizedBox(width: 8),
+                                    itemBuilder: (context, i) => _PieceTile(
+                                      piece: list[i],
+                                      selected:
+                                          studio.worn[studio.category]?.id ==
+                                          list[i].id,
+                                      onTap: () => controller.select(list[i]),
                                     ),
                                   ),
-                                )
-                              : ListView.separated(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: pieces.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(width: 8),
-                                  itemBuilder: (context, i) => _PieceTile(
-                                    piece: pieces[i],
-                                    selected:
-                                        studio.worn[pieces[i].category]?.id ==
-                                        pieces[i].id,
-                                    onTap: () => controller.select(pieces[i]),
-                                  ),
-                                ),
+                          ),
                         ),
                       ],
                     ),
@@ -298,10 +307,10 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: AppButton(
-                    label: 'PUBLISH LOOK ✦',
+                    label: 'SAVE FIT ✦',
                     height: 36,
-                    loading: _publishing,
-                    onPressed: _publish,
+                    loading: _saving,
+                    onPressed: _save,
                   ),
                 ),
               ],

@@ -1,49 +1,65 @@
 # Drip — Flutter frontend
 
-Mobile frontend for **Drip**, the outfit-of-the-day social app, built from the supplied Figma file
-(`../canvas.fig`, 32 mobile screens). This phase is **frontend only**: all data comes from local mock
-repositories, and no backend, auth provider or database is configured.
+Mobile frontend for **Drip**, the outfit-of-the-day app, built from the supplied Figma file (`../canvas.fig`).
+It talks to the Drip backend (`../../Backend_app`): Supabase for Google sign-in only, and the Drip API for
+everything else. The contract is `Backend_app/docs/API.md`; the integration rules are
+`Backend_app/docs/INTEGRATION.md`.
 
 ## Run
 
 ```bash
 flutter pub get
-flutter run                 # any connected Android / iOS device or emulator
-flutter run -d chrome       # quickest way to try it (use a phone-sized window)
-flutter test                # 59 tests: repositories, controllers, flows, nav + swipe gestures, themes, 5 screen sizes
+flutter run --dart-define-from-file=config/dev.json      # any connected Android device
+flutter test                                              # fixtures only, no network
 flutter analyze
 ```
 
-Requires Flutter 3.47+ (Dart 3.13). No environment variables are needed in this phase.
+`config/dev.json` holds `API_BASE_URL`, `SUPABASE_URL` and the Supabase **publishable** key, which is public by
+design (it ships in the app; RLS protects the data). Never put a secret or service-role key in the app. Built without
+the defines, the app shows a "missing configuration" screen instead of failing on its first request.
+
+Google sign-in returns through `com.drip.drip://login-callback` (Android intent filter + iOS URL type). That URL
+must be listed in Supabase → Authentication → URL Configuration → Redirect URLs.
+
+`flutter run -d chrome` needs the API's `CORS_ORIGINS` to include `http://localhost:5555` and
+`--web-port 5555`; use a phone or `-d windows` until that's set on Railway.
+
+Requires Flutter 3.47+ (Dart 3.13).
 
 ## Architecture
 
 ```
 lib/
-  core/            theme (tokens from Figma), shared widgets, formatting
+  core/            theme (tokens from Figma), shared widgets, formatting, config/env.dart
   data/
-    models/        plain immutable domain models
-    mock/          ALL fake data lives here (never in widgets)
-    repositories/  abstract interfaces + Mock* implementations
-    providers.dart Riverpod wiring: swap a Mock* for an API-backed class here
+    api/           ApiClient: bearer token, 401 refresh-and-retry, 429 Retry-After, { error } parsing, uploads
+    models/        immutable domain models, each with fromJson for the API shape
+    mock/          fixture data (tests, and the after-beta social screens)
+    repositories/  interface + Api* implementation + Mock* fixture per data source
+    providers.dart Riverpod wiring: the app gets Api*, tests override with Mock* (test/support/fakes.dart)
   features/<x>/    screens + controllers (Riverpod Notifiers)
-  routing/         go_router config, floating-nav shell, auth/onboarding guard
+  routing/         go_router config, floating-nav shell, auth guard
 ```
 
-`UI → controller (Riverpod) → repository interface → mock implementation`.
-To connect a backend later, implement the interfaces in `data/repositories/*` against the API and return
-them from `data/providers.dart`; screens and controllers don't change.
+`UI → controller (Riverpod) → repository interface → Api* (HTTP) → Drip API`.
 
-## What is real vs mocked
+## What's live vs. after beta
 
-Real (works today): navigation and route guards, onboarding picks, session flag, follow/unfollow,
-likes/saves, search + recents, category filters, wardrobe add/edit/remove, studio builder
-(undo/reset/randomize/publish), Taylor consultation flow, shopping bag, OOTD posting, profile editing,
-settings (persisted on device, incl. the skin that recolours the app), logout that wipes account state,
-camera/gallery picking via `image_picker`.
+Live against the API: Google sign-in (the first request creates the account), onboarding picks
+(`PATCH /me`), the Fashion Scroll and Home fits (`/scroll`, paged, with open/skip signals), likes and saves,
+Fit Analysis (`/outfits/:id`), Saved Looks and your Studio fits (`/studio`), the wardrobe (signed upload →
+background cut-out and tagging, polled until ready; retag category/colour; delete), the Studio canvas
+(`/studio/pieces`, `/studio/fits`, server-computed drip rate), Taylor (`/taylor` + the picked fit), Gen
+photoshoots (selfie upload, credits, job polling), Colour Theory seasons (`/colour/seasons`), account deletion.
 
-Mock until a backend exists: the feed/catalogue data, garment detection, Taylor's blueprint,
-photoshoot renders, followers lists, checkout (the bag has no payment step), password change.
+Prices are INR (`₹1,499`). Personal images (wardrobe uploads, selfies, Gen renders) are 1-hour signed URLs: shown,
+never stored, refetched when stale.
+
+Kept in the UI but "coming after beta" when used (no v1 backend, founder decision): stories, comments, sharing,
+following, DMs and notifications, posting OOTDs, public profiles, Discover and search, profile editing, privacy
+controls, phone sign-in, photoshoot edits. The rotation flag is stored on the device (no backend field).
+
+Still mocked on screen: the Home weather card and the bag (no checkout).
 
 ## Design source
 
@@ -54,24 +70,26 @@ Fonts (DM Mono, Bungee, Manrope, Inter, Fredoka) and the symbol/emoji fallbacks 
 
 ## Refinement pass: what changed
 
-Everything below is uncommitted working-tree work on top of the original Figma build. The information architecture,
-data layer and existing screens were kept; this pass refines look, motion, navigation and performance.
+On top of the original Figma build; the information architecture, data layer and existing screens were kept, and
+this pass refined look, motion, navigation and performance.
 
 ### Home
-- Restructured to the hand-drawn wireframe: DRIP wordmark + messages/notifications (with a real unread dot) →
+- Restructured to the hand-drawn wireframe: DRIP wordmark + messages/notifications (after beta) →
   horizontally scrolling **Stories** → the **featured fit** → a "Today's Drip" info bar (with the Ask Taylor entry) →
   a two-column grid of fresh fits → floating navigation.
 - Stories are larger (76px), with an accent→secondary ring for unseen and a hairline once seen, plus a "Your story" add.
 - Featured fit: tap opens it in the Fashion Scroll (the image expands into place); double-tap likes with a heart burst.
-- **Search left the Home header.** It lives in **Discover** (which already has the search field); reach it from the
-  "SEARCH & DISCOVER →" link on Home.
+- **Search left the Home header.** It lives in **Discover**, reached from the "SEARCH & DISCOVER →" link on Home
+  (after beta: there's no search endpoint yet).
 - Pull to refresh, skeleton placeholders shaped like the real layout while loading.
 
 ### Fashion Scroll (`/scroll`)
 - Immersive, full-bleed vertical pager: one fit per screen, snapping, next image pre-cached.
-- Creator row with follow, caption, tag chips, a "shop the look" strip ("N pieces · $total"), views and DRIP score.
-- Action rail: like, comments, save, share, with counts. Comments and share open glass sheets (comments can be posted).
-- Double-tap to like, end-of-feed card that takes you back to the top, opens on a specific fit via `?id=`.
+- Curated-by-Drip row (follow is after beta), title, kind and tag chips, a "shop the look" strip
+  ("N pieces · ₹total") and the DRIP score.
+- Action rail: like and save (live), comments and share (after beta).
+- Pages from `/scroll`: the next page loads near the end, and the last page is a "caught up" card. Each card reports
+  `open` or `skip` with how long it was on screen. Double-tap to like; opens on a specific fit via `?id=`.
 - The Home card's photo flies into place (Hero) with an animating corner radius. This only happens when you open
   from a card, never during a tab swipe.
 
@@ -131,8 +149,10 @@ is a whole world, not a recolour:
 - Hero flights are disabled for tab moves; the swipe wrapper repaints only a translated layer.
 
 ### Tests and tooling
-- `flutter test`: 59 tests (repositories, controllers, flows, nav tap/drag/rubber-band, swipe-anywhere, Home → Scroll,
-  likes/comments/share, themes and live preview, icon-swap timing per platform, launch, five screen sizes).
+- `flutter test`: 80 tests (API client: auth header, 401 refresh-and-retry, 429 Retry-After, errors, uploads; API
+  repositories against canned responses; controllers; sign-in → onboarding sync → logout; feed paging and signals;
+  nav tap/drag/rubber-band, swipe-anywhere, Home → Scroll; after-beta messages; themes and live preview; icon-swap
+  timing per platform; launch; five screen sizes). Tests use `test/support/fakes.dart`, never the network.
 - `flutter test tool/capture_test.dart --dart-define=OUT=<dir>` renders real screenshots (fonts, assets, blur) of key
   screens and skins for visual review.
 - `python tool/build_assets.py` (needs `posters/poster_XX.jpg`) regenerates theme art, the wordmark and the icons;
@@ -142,4 +162,5 @@ is a whole world, not a recolour:
 - iOS alternate icons and the Swift channel are written but **not built or run** (no Mac here).
 - The poster art was captured at ~658px, so enlarged icons are slightly grainy.
 - Launchers can take a few seconds to refresh a changed icon.
-- Nothing has been committed or pushed yet, by request.
+- After a theme switches the icon, `flutter run` can't launch (it starts the default alias, now disabled).
+  Re-enable it: `adb shell pm enable com.drip.drip/com.drip.drip.Alias_retro_cyber`.

@@ -6,25 +6,64 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/overlays.dart';
+import '../../core/widgets/states.dart';
+import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../data/api/api_client.dart';
+import '../../data/providers.dart';
+import '../../data/repositories/colour_repository.dart';
 import '../../routing/main_shell.dart';
-import '../settings/settings_controller.dart';
 
-/// "Colour theory" analysis for the signed-in user. The analysis itself comes
-/// from the mock below until the analysis API exists.
+/// The 12-season palettes (`GET /colour/seasons`), kept for the session.
+final colourSeasonsProvider = FutureProvider<List<ColourSeason>>((ref) {
+  ref.keepAlive();
+  return ref.watch(colourRepositoryProvider).seasons();
+});
+
+/// The season the user picked as theirs, stored in their onboarding prefs.
+final mySeasonIdProvider = Provider<String?>((ref) {
+  final prefs = ref.watch(accountProvider).value?.onboardingPrefs;
+  final id = prefs?['colourSeason'];
+  return id is String ? id : null;
+});
+
+/// Colour Theory: the seasonal palette system. Pick the season that suits
+/// you and it's saved to your account (there's no automatic analysis yet).
 class ColourTheoryProfileScreen extends ConsumerWidget {
   const ColourTheoryProfileScreen({super.key});
 
-  static const _try = [Color(0xFF39E5A3), Color(0xFF9448FF), Color(0xFFFFF619)];
-  static const _avoid = [
-    Color(0xFFB28965),
-    Color(0xFF625442),
-    Color(0xFFAA788F),
-  ];
+  static const _order = ['winter', 'spring', 'summer', 'autumn'];
+
+  Future<void> _choose(
+    BuildContext context,
+    WidgetRef ref,
+    ColourSeason season,
+  ) async {
+    try {
+      final account = await ref.read(accountProvider.future);
+      await ref
+          .read(accountRepositoryProvider)
+          .updateProfile(
+            // PATCH replaces the whole object, so keep the other picks.
+            onboardingPrefs: {
+              ...account.onboardingPrefs,
+              'colourSeason': season.id,
+            },
+          );
+      ref.invalidate(accountProvider);
+      if (context.mounted) {
+        showDripToast(context, '${season.name} is your season');
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) showDripToast(context, e.friendly);
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final username = ref.watch(settingsProvider.select((s) => s.username));
+    final seasons = ref.watch(colourSeasonsProvider);
+    final mine = ref.watch(mySeasonIdProvider);
+
     return ShellPage(
       child: Column(
         children: [
@@ -33,144 +72,68 @@ class ColourTheoryProfileScreen extends ConsumerWidget {
             leading: const BackGlyph(),
             trailing: GlyphButton(
               '🎨',
-              label: 'Palette',
-              onTap: () =>
-                  showDripToast(context, 'Palette locked to your analysis'),
+              label: 'Palette analysis',
+              onTap: () => showAfterBeta(context, 'Automatic colour analysis'),
             ),
           ),
           Expanded(
-            child: ListView(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Text(
-                        'ANALYSIS FOR @$username',
-                        style: AppText.mono(11, color: AppColors.cyan),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'MIDNIGHT RADAR',
-                        textAlign: TextAlign.center,
-                        style: AppText.display(22),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Your skin tone and style history map to high-contrast cold pigments with saturated electric accents.',
-                        textAlign: TextAlign.center,
-                        style: AppText.manrope(
-                          13,
-                          color: AppColors.muted,
-                          lineHeight: 18,
+            child: seasons.whenDrip(
+              onRetry: () => ref.invalidate(colourSeasonsProvider),
+              data: (list) {
+                final current = list.where((s) => s.id == mine).firstOrNull;
+                final groups = <String, List<ColourSeason>>{};
+                for (final s in list) {
+                  groups.putIfAbsent(s.parentSeason, () => []).add(s);
+                }
+                final parents = [
+                  ..._order.where(groups.containsKey),
+                  ...groups.keys.where((k) => !_order.contains(k)),
+                ];
+                return ListView(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    24 + MediaQuery.paddingOf(context).bottom,
+                  ),
+                  children: [
+                    if (current != null)
+                      _MySeason(season: current)
+                    else
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Every complexion has a season: the palette that '
+                          'makes it glow. Tap the one that sounds like you.',
+                          style: AppText.manrope(
+                            13,
+                            color: AppColors.muted,
+                            lineHeight: 19,
+                          ),
                         ),
                       ),
+                    for (final parent in parents) ...[
+                      const SizedBox(height: 20),
+                      SectionLabel(parent.toUpperCase()),
+                      const SizedBox(height: 10),
+                      for (final s in groups[parent]!) ...[
+                        _SeasonCard(
+                          season: s,
+                          selected: s.id == mine,
+                          onTap: () => _choose(context, ref, s),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                     ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    border: Border(
-                      top: BorderSide(color: AppColors.elevated),
-                      bottom: BorderSide(color: AppColors.elevated),
+                    const SizedBox(height: 16),
+                    AppButton(
+                      label: 'BUILD WITH MY PALETTE ✦',
+                      height: 44,
+                      onPressed: () => context.push('/studio'),
                     ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SectionLabel(
-                        'PRIMARY HERO HIGHLIGHTS',
-                        size: 9,
-                        letterSpacing: 0,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _HeroSwatch(
-                              label: 'Drip Red',
-                              color: AppColors.red,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _HeroSwatch(
-                              label: 'Future Cyan',
-                              color: AppColors.cyan,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      const SectionLabel(
-                        'YOUR UNDERSTATED NEUTRALS',
-                        size: 9,
-                        letterSpacing: 0,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _Neutral(
-                              name: 'Ink Ground',
-                              hex: '#0E1018',
-                              fill: AppColors.surface,
-                              dark: false,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: _Neutral(
-                              name: 'Cream Off',
-                              hex: '#E8DFC8',
-                              fill: AppColors.cream,
-                              dark: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Expanded(
-                        child: _Recommendation(
-                          title: '✓ COLS TO TRY',
-                          titleColor: AppColors.cyan,
-                          swatches: _try,
-                          note: 'High saturation neons offset the dark base fabrics.',
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _Recommendation(
-                          title: '✕ COLS TO AVOID',
-                          titleColor: AppColors.red,
-                          swatches: _avoid,
-                          note: 'Muted earth tones wash out the cyber-futurist contrast.',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  child: AppButton(
-                    label: 'USE MY PALETTE IN STUDIO ✦',
-                    height: 44,
-                    onPressed: () {
-                      showDripToast(context, 'Palette loaded into the Studio');
-                      context.push('/studio');
-                    },
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -179,118 +142,126 @@ class ColourTheoryProfileScreen extends ConsumerWidget {
   }
 }
 
-class _HeroSwatch extends StatelessWidget {
-  const _HeroSwatch({required this.label, required this.color});
-  final String label;
-  final Color color;
+class _MySeason extends StatelessWidget {
+  const _MySeason({required this.season});
+  final ColourSeason season;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: AppText.mono(10, color: AppColors.base, weight: FontWeight.w500),
-      ),
-    );
-  }
-}
-
-class _Neutral extends StatelessWidget {
-  const _Neutral({
-    required this.name,
-    required this.hex,
-    required this.fill,
-    required this.dark,
-  });
-  final String name;
-  final String hex;
-  final Color fill;
-  final bool dark;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: fill,
-        borderRadius: BorderRadius.circular(12),
-        border: dark ? null : Border.all(color: AppColors.elevated),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            name,
-            style: AppText.mono(
-              9,
-              color: dark ? AppColors.base : AppColors.cream,
-              weight: dark ? FontWeight.w500 : FontWeight.w400,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            hex,
-            style: AppText.mono(
-              8,
-              color: dark
-                  ? AppColors.base.withValues(alpha: 0.6)
-                  : AppColors.muted,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Recommendation extends StatelessWidget {
-  const _Recommendation({
-    required this.title,
-    required this.titleColor,
-    required this.swatches,
-    required this.note,
-  });
-  final String title;
-  final Color titleColor;
-  final List<Color> swatches;
-  final String note;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.elevated),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: season.accent),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: AppText.mono(9, color: titleColor)),
+          Text(
+            'YOUR SEASON',
+            style: AppText.mono(10, color: AppColors.muted, letterSpacing: 1.4),
+          ),
+          const SizedBox(height: 8),
+          Text(season.name.toUpperCase(), style: AppText.display(22)),
+          const SizedBox(height: 4),
+          Text(
+            season.tagline,
+            style: AppText.mono(10, color: AppColors.cyan),
+          ),
           const SizedBox(height: 10),
+          Text(
+            season.description,
+            style: AppText.manrope(13, color: AppColors.muted, lineHeight: 19),
+          ),
+          const SizedBox(height: 14),
           Row(
             children: [
-              for (final c in swatches)
-                Container(
-                  width: 16,
-                  height: 16,
-                  margin: const EdgeInsets.only(right: 4),
-                  decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+              for (final c in season.palette)
+                Expanded(
+                  child: Container(
+                    height: 34,
+                    margin: const EdgeInsets.only(right: 4),
+                    decoration: BoxDecoration(
+                      color: c,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.elevated),
+                    ),
+                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            note,
-            style: AppText.manrope(10, color: AppColors.muted, lineHeight: 14),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+class _SeasonCard extends StatelessWidget {
+  const _SeasonCard({
+    required this.season,
+    required this.selected,
+    required this.onTap,
+  });
+  final ColourSeason season;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tap(
+      onTap: onTap,
+      semanticLabel: '${season.name}${selected ? ', your season' : ''}',
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? season.accent : AppColors.elevated,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    season.name,
+                    style: AppText.manrope(14, weight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    season.tagline,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.mono(9, color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      for (final c in season.palette.take(8))
+                        Container(
+                          width: 16,
+                          height: 16,
+                          margin: const EdgeInsets.only(right: 4),
+                          decoration: BoxDecoration(
+                            color: c,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.elevated),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Text('✓', style: AppText.mono(16, color: season.accent)),
+          ],
+        ),
       ),
     );
   }

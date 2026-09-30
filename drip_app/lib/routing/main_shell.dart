@@ -104,6 +104,10 @@ class MainShell extends StatelessWidget {
           // Swipe sideways anywhere on a tab root to move to the next tab.
           _TabSwipe(
             tab: under ? active : null,
+            // Like Instagram: swipe right past Home to reach the camera.
+            onPastStart: path == '/home'
+                ? () => context.push('/wardrobe/capture')
+                : null,
             onSwipe: (dir) {
               final next = active!.index + dir;
               if (next < 0 || next >= NavTab.values.length) return;
@@ -119,8 +123,8 @@ class MainShell extends StatelessWidget {
               child: DripBottomNav(
                 active: active,
                 onTab: (tab) => _goTab(context, tab, active),
-                onCreate: () {
-                  if (!path.startsWith('/create')) context.push('/create');
+                onStudio: () {
+                  if (!path.startsWith('/studio')) context.push('/studio');
                 },
               ),
             ),
@@ -155,6 +159,7 @@ class _TabSwipe extends StatefulWidget {
     required this.tab,
     required this.onSwipe,
     required this.child,
+    this.onPastStart,
   });
 
   /// The active tab when swiping is allowed here, else null (detail screens).
@@ -163,6 +168,9 @@ class _TabSwipe extends StatefulWidget {
   /// -1 = towards the previous tab, +1 = towards the next.
   final ValueChanged<int> onSwipe;
   final Widget child;
+
+  /// A swipe right on the first tab (nothing before it) commits to this.
+  final VoidCallback? onPastStart;
 
   @override
   State<_TabSwipe> createState() => _TabSwipeState();
@@ -227,6 +235,13 @@ class _TabSwipeState extends State<_TabSwipe>
     if (_hasTab(dir) && (far || quick) && (_raw.sign == projected.sign)) {
       Haptics.commit();
       widget.onSwipe(dir);
+    } else if (dir == -1 &&
+        !_hasTab(dir) &&
+        widget.onPastStart != null &&
+        (far || quick) &&
+        _raw.sign == projected.sign) {
+      Haptics.commit();
+      widget.onPastStart!();
     }
     _springHome(v * 0.42);
   }

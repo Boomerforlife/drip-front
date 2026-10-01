@@ -79,7 +79,9 @@ class Outfit {
         if (p is Map) OutfitPiece.fromJson(p.cast<String, dynamic>()),
     ];
     final colourStory = json['colourStory'] as String?;
-    final season = [for (final s in (json['season'] as List?) ?? const []) '$s'];
+    final season = [
+      for (final s in (json['season'] as List?) ?? const []) '$s',
+    ];
     final formality = (json['formality'] as num?)?.toInt();
     return Outfit(
       id: json['id'] as String,
@@ -142,7 +144,7 @@ class OutfitPiece {
   final String slot;
   final String name;
 
-  /// Empty when unknown (API pieces carry the store link instead).
+  /// The store ("Snitch"); empty when unknown.
   final String brand;
   final int price;
   final String? image;
@@ -153,7 +155,7 @@ class OutfitPiece {
     return OutfitPiece(
       slot: category.isEmpty ? 'PIECE' : category,
       name: json['name'] as String? ?? '',
-      brand: '',
+      brand: json['brand'] as String? ?? '',
       price: moneyAmount(json['price']) ?? 0,
       image: json['image'] as String?,
       buyUrl: json['buyUrl'] as String?,

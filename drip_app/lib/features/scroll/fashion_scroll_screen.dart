@@ -20,6 +20,7 @@ import '../../data/models/outfit.dart';
 import '../home/feed_controller.dart';
 import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
+import '../outfits/shop_sheet.dart';
 
 /// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
 ///
@@ -69,7 +70,9 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
     if (_pc != null) return _pc!;
     final start = widget.startId == null
         ? 0
-        : items.indexWhere((o) => o.id == widget.startId).clamp(0, items.length);
+        : items
+              .indexWhere((o) => o.id == widget.startId)
+              .clamp(0, items.length);
     _page = start;
     return _pc = PageController(initialPage: _page);
   }
@@ -215,10 +218,7 @@ class _FeedTail extends StatelessWidget {
       return const _ReelSkeleton();
     }
     if (state.loadMoreFailed) {
-      return ErrorState(
-        message: "Couldn't load more fits.",
-        onRetry: onRetry,
-      );
+      return ErrorState(message: "Couldn't load more fits.", onRetry: onRetry);
     }
     return EmptyState(
       title: "YOU'RE ALL CAUGHT UP",
@@ -554,7 +554,8 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Piece count and total price of the fit. Tapping opens the full breakdown.
+/// Piece count and total price of the fit. Tapping opens "Shop the look" over the feed: each
+/// piece links to its product page.
 class _ShopStrip extends ConsumerWidget {
   const _ShopStrip({required this.outfit});
   final Outfit outfit;
@@ -567,7 +568,11 @@ class _ShopStrip extends ConsumerWidget {
     return Tap(
       onTap: () {
         ref.read(feedProvider.notifier).signal(outfit.id, 'open');
-        context.push('/outfit/${outfit.id}');
+        showShopSheet(
+          context,
+          outfit,
+          onFullBreakdown: () => context.push('/outfit/${outfit.id}'),
+        );
       },
       semanticLabel: 'Shop the look: ${outfit.title}',
       scale: 0.98,
@@ -592,7 +597,9 @@ class _ShopStrip extends ConsumerWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    total > 0 ? '${formatPrice(total)} total' : 'See the pieces',
+                    total > 0
+                        ? '${formatPrice(total)} total'
+                        : 'See the pieces',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppText.manrope(12, weight: FontWeight.w700),

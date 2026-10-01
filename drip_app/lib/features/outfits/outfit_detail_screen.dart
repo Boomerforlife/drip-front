@@ -8,6 +8,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/overlays.dart';
+import 'shop_sheet.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
@@ -177,7 +178,9 @@ class _Content extends ConsumerWidget {
                       for (final p in outfit.pieces) ...[
                         _PieceRow(
                           piece: p,
-                          onShop: () => _addToBag(context, ref, [p]),
+                          onShop: () => p.buyUrl != null
+                              ? openProductPage(context, p)
+                              : _addToBag(context, ref, [p]),
                         ),
                         const SizedBox(height: 8),
                       ],
@@ -225,7 +228,7 @@ class _Content extends ConsumerWidget {
                 child: AppButton(
                   label: 'SHOP ENTIRE FIT →',
                   height: 44,
-                  onPressed: () => _addToBag(context, ref, outfit.pieces),
+                  onPressed: () => showShopSheet(context, outfit),
                 ),
               ),
             ],

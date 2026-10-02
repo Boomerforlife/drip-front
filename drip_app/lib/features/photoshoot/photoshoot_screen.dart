@@ -46,7 +46,8 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
 
   /// Gen renders the user wearing the fit, so it needs a selfie on file.
   Future<bool> _addSelfie() async {
-    final source = await showDripSheet<ImageSource>(
+    var guided = false;
+    final source = await showDripSheet<ImageSource?>(
       context,
       builder: (ctx) => SheetContent(
         title: 'ADD A SELFIE',
@@ -55,7 +56,17 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
             'good light. It stays private to your account.',
         children: [
           AppButton(
-            label: 'TAKE A SELFIE',
+            label: 'GUIDED SELFIE ✦',
+            height: 44,
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              guided = true;
+            },
+          ),
+          const SizedBox(height: 10),
+          AppButton(
+            label: 'QUICK SELFIE',
+            style: AppButtonStyle.outline,
             height: 44,
             onPressed: () => Navigator.of(ctx).pop(ImageSource.camera),
           ),
@@ -69,6 +80,10 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
         ],
       ),
     );
+    if (guided && mounted) {
+      // The coordinator saves the selfie itself and pops with true.
+      return await context.push<bool>('/selfie') ?? false;
+    }
     if (source == null || !mounted) return false;
     final XFile? file;
     try {

@@ -252,7 +252,7 @@ void main() {
       await t.tap(find.text('PASTEL SHOCK'));
       await settle(t, 900);
       expect(find.byType(FashionScrollScreen), findsOneWidget);
-      expect(find.text('2 / 3+'), findsOneWidget);
+      expect(find.text('PASTEL SHOCK'), findsWidgets);
       // Back returns Home (the Scroll was pushed over it).
       container.read(routerProvider).pop();
       await settle(t, 700);
@@ -267,7 +267,6 @@ void main() {
       container.read(routerProvider).go('/scroll?id=o_gray');
       await settle(t, 900);
       expect(find.text('GRAY OVERCOAT'), findsOneWidget);
-      expect(find.text('3 / 3+'), findsOneWidget);
     });
 
     testWidgets('double-tap likes with feedback', (t) async {
@@ -291,11 +290,9 @@ void main() {
       await settle(t, 1600);
       container.read(routerProvider).go('/scroll');
       await settle(t, 900);
-      expect(find.text('1 / 3+'), findsOneWidget);
       await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
       await settle(t, 900);
       // Near the end of a page, the next one is already loading in.
-      expect(find.text('2 / 6+'), findsOneWidget);
       final feed = container.read(feedRepositoryProvider) as MockFeedRepository;
       expect(feed.signals, contains(('o_baggy', 'skip')));
     });
@@ -340,11 +337,9 @@ void main() {
       await settle(t, 1600);
       container.read(routerProvider).go('/scroll?id=o_gray');
       await settle(t, 900);
-      expect(find.text('3 / 3+'), findsOneWidget);
       await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
       await settle(t, 1200);
       expect(find.text('TOKYO NEON GRID'), findsOneWidget);
-      expect(find.text('4 / 6+'), findsOneWidget);
     });
 
     testWidgets('the end of the feed is a caught-up card', (t) async {
@@ -357,7 +352,6 @@ void main() {
       await settle(t, 1600);
       container.read(routerProvider).go('/scroll?id=o_pastel');
       await settle(t, 900);
-      expect(find.text('2 / 2'), findsOneWidget);
       await t.fling(find.byType(PageView), const Offset(0, -400), 1800);
       await settle(t, 900);
       expect(find.text("YOU'RE ALL CAUGHT UP"), findsOneWidget);

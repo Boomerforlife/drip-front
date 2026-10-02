@@ -13,6 +13,7 @@ import '../features/onboarding/onboarding_flow.dart';
 import '../features/scroll/fashion_scroll_screen.dart';
 import '../features/outfits/outfit_detail_screen.dart';
 import '../features/photoshoot/photoshoot_result_screen.dart';
+import '../features/selfie/selfie_screen.dart';
 import '../features/photoshoot/photoshoot_screen.dart';
 import '../features/profile/colour_theory_profile_screen.dart';
 import '../features/profile/my_profile_screen.dart';
@@ -194,6 +195,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         '/ootd/:id',
         (s) => OotdViewerScreen(ootdId: s.pathParameters['id']!),
       ),
+      _page('/selfie', (_) => const SelfieScreen()),
       _page('/themes', (_) => const ThemePickerScreen(), fade: true),
       _page('/stylist', (_) => const TaylorScreen()),
       _page('/stylist/result', (_) => const TaylorResultScreen()),

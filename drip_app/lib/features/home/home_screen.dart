@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +8,7 @@ import '../../core/motion.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/contrast.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/brand.dart';
 import '../../core/widgets/drip_image.dart';
@@ -15,7 +18,6 @@ import '../../core/widgets/overlays.dart';
 import '../../core/widgets/skeleton.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
-import '../../data/mock/mock_weather.dart';
 import '../../data/models/outfit.dart';
 import '../../routing/main_shell.dart';
 import '../bag/bag_controller.dart';
@@ -24,7 +26,7 @@ import '../outfits/outfit_controller.dart';
 import '../social/social_controller.dart';
 import 'feed_controller.dart';
 
-/// Home: brand + inbox → stories → today (weather, pick, Ask Taylor) →
+/// Home: brand + inbox → stories → today (date, time, pick, Ask Taylor) →
 /// tools → today's drip (into the Scroll) → a staggered wall of fresh fits.
 ///
 /// The fits are the first page of the Fashion Scroll feed (`GET /scroll`).
@@ -387,8 +389,11 @@ const _months = [
   'DEC',
 ];
 
-/// The Home hero: today's (mocked) weather, what it means for your fit, and
-/// the day's pick, with Taylor one tap away. It's the only stylist entry on
+/// The clock the Home hero reads. Tests swap it to pin the time of day.
+DateTime Function() homeClock = DateTime.now;
+
+/// The Home hero: today's date, the time and whether it's day or night, with
+/// the day's pick and Taylor one tap away. It's the only stylist entry on
 /// Home: the whole card leads there, "Ask Taylor" just names the door.
 ///
 /// The pick's portrait breaks out of the card's top edge, like a photo tucked
@@ -404,19 +409,7 @@ class _TodayCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final weather = MockWeather.today();
-    final now = DateTime.now();
-    final date =
-        '${_weekdays[now.weekday - 1]} ${now.day} ${_months[now.month - 1]}';
     final corner = (26 * p.roundness).clamp(14.0, 30.0);
-    // Four clearly different chips (the skin's wash is near-black, so it's
-    // lifted toward cream to stay visible on the card).
-    final swatches = [
-      p.accent,
-      p.secondary,
-      Color.lerp(p.wash, AppColors.cream, 0.55)!,
-      AppColors.cream,
-    ];
     final pick = outfit;
 
     final card = Glass(
@@ -427,69 +420,7 @@ class _TodayCard extends StatelessWidget {
         children: [
           Padding(
             padding: EdgeInsets.only(right: pick == null ? 0 : _portraitW + 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'TODAY, $date',
-                  style: AppText.mono(
-                    10,
-                    color: AppColors.muted,
-                    letterSpacing: 1.6,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '${weather.tempF}°',
-                      style: AppText.display(40, lineHeight: 42),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Scales down on narrow phones instead of overflowing.
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: _DayColours(colors: swatches),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '${weather.glyph}  ${weather.condition}'
-                                  .toUpperCase(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.mono(
-                                10,
-                                color: AppColors.cream,
-                                letterSpacing: 1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  weather.advice,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.manrope(
-                    13,
-                    color: AppColors.cream.withValues(alpha: 0.78),
-                    lineHeight: 19,
-                  ),
-                ),
-              ],
-            ),
+            child: const _DayClock(),
           ),
           const SizedBox(height: 16),
           Container(
@@ -543,7 +474,6 @@ class _TodayCard extends StatelessWidget {
     return Tap(
       onTap: () => context.push('/stylist'),
       semanticLabel:
-          "Today, ${weather.tempF} degrees, ${weather.condition}. "
           "${pick == null ? '' : "Today's pick: ${pick.title}. "}Ask Taylor",
       scale: 0.985,
       child: pick == null
@@ -561,6 +491,152 @@ class _TodayCard extends StatelessWidget {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Date, time and day/night, live: re-reads the clock on every minute change.
+/// Follows the phone's 12/24-hour setting.
+class _DayClock extends StatefulWidget {
+  const _DayClock();
+
+  @override
+  State<_DayClock> createState() => _DayClockState();
+}
+
+class _DayClockState extends State<_DayClock> {
+  late DateTime _now = homeClock();
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  /// Wakes on the next minute boundary, so the display is never a minute late.
+  void _schedule() {
+    final into = Duration(seconds: _now.second, milliseconds: _now.millisecond);
+    _timer = Timer(const Duration(minutes: 1) - into, () {
+      if (!mounted) return;
+      setState(() => _now = homeClock());
+      _schedule();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// Daylight hours: 6 AM up to (not including) 6 PM.
+  static bool _isDay(DateTime t) => t.hour >= 6 && t.hour < 18;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = _now;
+    final h24 = MediaQuery.alwaysUse24HourFormatOf(context);
+    final day = _isDay(now);
+    final date =
+        '${_weekdays[now.weekday - 1]} · '
+        '${now.day.toString().padLeft(2, '0')} ${_months[now.month - 1]}';
+    final minute = now.minute.toString().padLeft(2, '0');
+    final hour = h24
+        ? now.hour.toString().padLeft(2, '0')
+        : (now.hour % 12 == 0 ? 12 : now.hour % 12).toString();
+    final period = h24 ? '' : (now.hour < 12 ? 'AM' : 'PM');
+
+    return Semantics(
+      label: '$date, $hour:$minute $period, ${day ? 'day' : 'night'}',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            date,
+            style: AppText.mono(10, color: AppColors.muted, letterSpacing: 1.6),
+          ),
+          const SizedBox(height: 8),
+          // Wraps instead of overflowing when the card is narrow.
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.end,
+            children: [
+              // Scales down on the narrowest phones instead of overflowing.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      '$hour:$minute',
+                      style: AppText.display(42, lineHeight: 44),
+                    ),
+                    if (period.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        period,
+                        style: AppText.mono(
+                          12,
+                          color: AppColors.muted,
+                          weight: FontWeight.w500,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              _DayNightChip(day: day),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small pill: sun for day, moon for night.
+class _DayNightChip extends StatelessWidget {
+  const _DayNightChip({required this.day});
+  final bool day;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: AppColors.cream.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppColors.cream.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            day ? Icons.wb_sunny_rounded : Icons.nightlight_round,
+            size: 13,
+            color: p.accent,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            day ? 'DAY' : 'NIGHT',
+            style: AppText.mono(
+              10,
+              color: AppColors.cream,
+              weight: FontWeight.w500,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -612,57 +688,6 @@ class _Portrait extends StatelessWidget {
   }
 }
 
-/// The day's colours: four separate, clearly sized chips with a caption,
-/// instead of tiny overlapping dots.
-class _DayColours extends StatelessWidget {
-  const _DayColours({required this.colors});
-  final List<Color> colors;
-
-  static const _d = 24.0;
-  static const _gap = 8.0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          'COLOURS OF THE DAY',
-          style: AppText.mono(9, color: AppColors.muted, letterSpacing: 1.2),
-        ),
-        const SizedBox(height: 6),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < colors.length; i++) ...[
-              if (i > 0) const SizedBox(width: _gap),
-              Container(
-                width: _d,
-                height: _d,
-                decoration: BoxDecoration(
-                  color: colors[i],
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.cream.withValues(alpha: 0.45),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colors[i].withValues(alpha: 0.35),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 // ─────────────────────────────────────────────────────────── feature blocks
 
 class _Feature {
@@ -680,7 +705,6 @@ const _features = [
     '01',
     Icons.face_retouching_natural_rounded,
     'Selfie Coordinator',
-    soon: true,
   ),
   _Feature('02', Icons.palette_outlined, 'Colour Theory'),
   _Feature('03', Icons.shopping_bag_outlined, 'Shop List'),
@@ -697,6 +721,8 @@ class _FeatureBlocks extends ConsumerWidget {
       return;
     }
     switch (f.index) {
+      case '01':
+        context.push('/selfie');
       case '02':
         context.push('/me/colour-theory');
       case '03':
@@ -714,6 +740,8 @@ class _FeatureBlocks extends ConsumerWidget {
             ? 'AFTER BETA'
             : f.index == '03'
             ? (inBag == 0 ? 'EMPTY' : '$inBag IN BAG')
+            : f.index == '01'
+            ? 'GUIDED SELFIE'
             : 'YOUR PALETTE',
         onTap: () => _open(context, f),
       ),
@@ -755,9 +783,31 @@ class _FeatureTile extends StatelessWidget {
     final p = context.palette;
     final soon = feature.soon;
     final radius = (18 * p.roundness).clamp(12.0, 22.0);
-    // Visible, not loud: a lifted surface with a hairline edge. Live tiles get
-    // a soft accent edge and an accent-tinted icon chip; "after beta" tiles
-    // stay calm and neutral.
+    // Every colour is checked against what the tile actually sits on, so the
+    // outline, icon and text stay legible whatever the theme's ground is.
+    // Live tiles get an accent edge (never fainter than 3:1) and an
+    // accent-tinted icon chip; "after beta" tiles stay calm and neutral.
+    final backdrop = featureTileBackdrop(p);
+    final border = soon
+        ? AppColors.cream.withValues(alpha: 0.12)
+        : selfieCoordinatorBorderColor(p);
+    final chipFill = (soon ? AppColors.cream : p.accent).withValues(
+      alpha: soon ? 0.08 : 0.16,
+    );
+    final chipBg = Color.alphaBlend(chipFill, backdrop);
+    final iconColor = soon
+        ? ensureContrast(AppColors.muted, chipBg, minRatio: 3)
+        : ensureContrast(p.accent, chipBg, minRatio: 3);
+    final labelColor = ensureContrast(
+      soon ? AppColors.cream.withValues(alpha: 0.72) : AppColors.cream,
+      backdrop,
+      minRatio: 4.5,
+    );
+    final metaColor = ensureContrast(
+      soon ? AppColors.dim : AppColors.muted,
+      backdrop,
+      minRatio: 4.5,
+    );
     return Tap(
       onTap: onTap,
       semanticLabel: soon
@@ -776,12 +826,7 @@ class _FeatureTile extends StatelessWidget {
               AppColors.cream.withValues(alpha: soon ? 0.03 : 0.05),
             ],
           ),
-          border: Border.all(
-            color: soon
-                ? AppColors.cream.withValues(alpha: 0.12)
-                : p.accent.withValues(alpha: 0.38),
-            width: 1,
-          ),
+          border: Border.all(color: border, width: soon ? 1 : 1.25),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -790,7 +835,7 @@ class _FeatureTile extends StatelessWidget {
               children: [
                 Text(
                   feature.index,
-                  style: AppText.mono(10, color: AppColors.muted),
+                  style: AppText.mono(10, color: metaColor),
                 ),
                 const Spacer(),
                 Container(
@@ -798,15 +843,9 @@ class _FeatureTile extends StatelessWidget {
                   height: 30,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    color: (soon ? AppColors.cream : p.accent).withValues(
-                      alpha: soon ? 0.08 : 0.16,
-                    ),
+                    color: chipFill,
                   ),
-                  child: Icon(
-                    feature.icon,
-                    size: 17,
-                    color: soon ? AppColors.muted : p.accent,
-                  ),
+                  child: Icon(feature.icon, size: 17, color: iconColor),
                 ),
               ],
             ),
@@ -818,19 +857,13 @@ class _FeatureTile extends StatelessWidget {
               style: AppText.manrope(
                 14,
                 weight: FontWeight.w700,
-                color: soon
-                    ? AppColors.cream.withValues(alpha: 0.72)
-                    : AppColors.cream,
+                color: labelColor,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               meta,
-              style: AppText.mono(
-                10,
-                color: soon ? AppColors.dim : AppColors.muted,
-                letterSpacing: 1,
-              ),
+              style: AppText.mono(10, color: metaColor, letterSpacing: 1),
             ),
           ],
         ),

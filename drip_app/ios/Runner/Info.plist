@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Drip uses the camera to guide you to a better selfie and to add wardrobe photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Drip lets you choose a photo from your library for your selfie and wardrobe.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

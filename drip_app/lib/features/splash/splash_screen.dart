@@ -9,6 +9,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/brand.dart';
 import '../../core/widgets/drip_image.dart';
+import '../../data/providers.dart';
 import '../home/feed_controller.dart';
 import '../outfits/outfit_controller.dart';
 import '../session/session_controller.dart';
@@ -66,7 +67,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     if (!mounted || _left) return;
     _left = true;
     final session = ref.read(sessionProvider);
-    context.go(session.signedIn ? '/home' : '/welcome');
+    // Onboarding finished but its close never shown (the app was closed on
+    // the way back from Google): open on it, so a returning user still gets
+    // asked before anything on their account changes.
+    final ready = ref.read(localStoreProvider).firstRunPending;
+    context.go(
+      !session.signedIn
+          ? '/welcome'
+          : ready
+          ? '/ready'
+          : '/home',
+    );
   }
 
   @override

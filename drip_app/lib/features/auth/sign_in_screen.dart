@@ -157,13 +157,6 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                         loading: _waiting,
                         onPressed: _google,
                       ),
-                      const SizedBox(height: 14),
-                      AppButton(
-                        label: 'CONTINUE WITH PHONE',
-                        style: AppButtonStyle.outline,
-                        onPressed: () =>
-                            showAfterBeta(context, 'Phone sign-in'),
-                      ),
                     ],
                   ),
                 ),

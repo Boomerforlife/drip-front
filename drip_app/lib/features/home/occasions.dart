@@ -18,6 +18,7 @@ class Occasion {
     this.maxFormality,
     this.tint, {
     this.image,
+    this.credit,
   });
 
   final String id;
@@ -28,11 +29,16 @@ class Occasion {
   final int minFormality;
   final int maxFormality;
 
-  /// Card colour until a background photo is added.
+  /// The card's colour: behind the photo while it loads, and the whole card
+  /// if there's no photo.
   final Color tint;
 
-  /// Background photo (an asset or URL), added later.
+  /// Background photo: an asset (`assets/occasions/<id>.jpg`) or a URL.
+  /// Swap the file to change it; nothing else references it.
   final String? image;
+
+  /// Who took [image] (Unsplash, free licence; credit is courtesy).
+  final String? credit;
 
   bool suits(Outfit o) {
     final f = o.formality;
@@ -49,6 +55,8 @@ abstract final class Occasions {
       2,
       4,
       Color(0xFF5A2A4F),
+      image: 'assets/occasions/date-night.jpg',
+      credit: 'Yianni Mathioudakis / Unsplash',
     ),
     Occasion(
       'concert',
@@ -57,6 +65,8 @@ abstract final class Occasions {
       1,
       3,
       Color(0xFF1F2C5C),
+      image: 'assets/occasions/concert.jpg',
+      credit: 'Tijs van Leur / Unsplash',
     ),
     Occasion(
       'late-night-dinner',
@@ -65,6 +75,8 @@ abstract final class Occasions {
       3,
       4,
       Color(0xFF3B2A1E),
+      image: 'assets/occasions/late-night-dinner.jpg',
+      credit: 'Berkay Samiloglu / Unsplash',
     ),
     Occasion(
       'university',
@@ -73,6 +85,8 @@ abstract final class Occasions {
       1,
       2,
       Color(0xFF24513A),
+      image: 'assets/occasions/university.jpg',
+      credit: 'Joshua Song / Unsplash',
     ),
     Occasion(
       'parties',
@@ -81,6 +95,8 @@ abstract final class Occasions {
       1,
       3,
       Color(0xFF6B1F2A),
+      image: 'assets/occasions/parties.jpg',
+      credit: 'OurWhisky Foundation / Unsplash',
     ),
     Occasion(
       'clubs',
@@ -89,6 +105,8 @@ abstract final class Occasions {
       2,
       4,
       Color(0xFF14161F),
+      image: 'assets/occasions/clubs.jpg',
+      credit: 'Ramin Talebi / Unsplash',
     ),
     Occasion(
       'picnics',
@@ -97,6 +115,8 @@ abstract final class Occasions {
       1,
       2,
       Color(0xFF6B7048),
+      image: 'assets/occasions/picnics.jpg',
+      credit: 'Mason Dahl / Unsplash',
     ),
     Occasion(
       'derbies',
@@ -105,8 +125,19 @@ abstract final class Occasions {
       4,
       5,
       Color(0xFF2F4BD6),
+      image: 'assets/occasions/derbies.jpg',
+      credit: 'Daniel Sánchez / Unsplash',
     ),
-    Occasion('golf', 'Golf', 'Clubhouse-ready', 2, 3, Color(0xFF2E5D3A)),
+    Occasion(
+      'golf',
+      'Golf',
+      'Clubhouse-ready',
+      2,
+      3,
+      Color(0xFF2E5D3A),
+      image: 'assets/occasions/golf.jpg',
+      credit: 'Randy Kinne / Unsplash',
+    ),
     Occasion(
       'sports',
       'Sports',
@@ -114,6 +145,8 @@ abstract final class Occasions {
       1,
       2,
       Color(0xFFD2601F),
+      image: 'assets/occasions/sports.jpg',
+      credit: 'Igor Batista / Unsplash',
     ),
     Occasion(
       'family-events',
@@ -122,6 +155,8 @@ abstract final class Occasions {
       2,
       4,
       Color(0xFF8A6E4B),
+      image: 'assets/occasions/family-events.jpg',
+      credit: 'krakenimages / Unsplash',
     ),
     Occasion(
       'wedding',
@@ -130,7 +165,17 @@ abstract final class Occasions {
       4,
       5,
       Color(0xFF7A5C2E),
+      image: 'assets/occasions/wedding.jpg',
+      credit: 'sammy swae / Unsplash',
     ),
+  ];
+
+  /// [all], with the ones in [picked] first (in their usual order).
+  static List<Occasion> pickedFirst(Set<String> picked) => [
+    for (final o in all)
+      if (picked.contains(o.id)) o,
+    for (final o in all)
+      if (!picked.contains(o.id)) o,
   ];
 
   static Occasion? byId(String? id) {

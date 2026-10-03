@@ -35,6 +35,11 @@ flutter:
     - assets/icons/
     - assets/themes/
     - assets/brand/
+    # Brand logos for the onboarding Labels step: Simple Icons (CC0 set,
+    # simpleicons.org), viewBox cropped to the ink. Trademarks of their owners.
+    - assets/brands/
+    # Occasion photos (Unsplash, free licence; credits in occasions.dart).
+    - assets/occasions/
 
   fonts:
     - family: DM Mono

@@ -62,46 +62,51 @@ void main() {
   ) async {
     await boot(t);
 
-    // Splash runs its launch sequence, then lands on the welcome step.
+    // Splash runs its launch sequence, then lands on the welcome: the
+    // brand's opening line, and the way in.
     expect(find.byType(DripWordmark), findsOneWidget);
     await settle(t, 3200);
-    expect(find.text('THE FIT\nFINDS YOU.'), findsOneWidget);
-
-    // Onboarding: welcome → hard truth → what is Drip → vibe.
+    expect(find.text('OVERDRESSED'), findsOneWidget);
     await tapText(t, 'GET STARTED →');
-    await settle(t, 600);
-    expect(find.text('HARD TRUTH №1'), findsOneWidget);
-    await tapText(t, 'HELP ME →');
-    expect(find.text('WHAT IS DRIP?'), findsOneWidget);
-    await tapText(t, 'UNDERSTOOD. NEXT →');
-    expect(find.text('YOUR VIBE'), findsOneWidget);
 
-    // No era yet → the button refuses to continue.
-    expect(container.read(onboardingProvider).moodIds, isEmpty);
-    await tapText(t, 'CONFIRM VIBE →');
-    expect(find.text('Pick at least one era'), findsOneWidget);
+    // Dress me for: one tap, and the flow moves on by itself.
+    expect(find.text('DRESS ME FOR'), findsOneWidget);
+    await tapText(t, 'PICK ONE TO CONTINUE');
+    expect(find.text('TAP THE ONE THAT FITS'), findsOneWidget);
+    await t.tap(find.text('FEMALE'));
+    await settle(t, 1200);
+    expect(container.read(onboardingProvider).gender, 'female');
+
+    // Vibe: no era yet → the button says what it needs.
     expect(find.text('YOUR VIBE'), findsOneWidget);
+    await tapText(t, 'PICK AN ERA TO CONTINUE');
+    expect(find.text('TAP AN ERA, OR HIT SURPRISE ME'), findsOneWidget);
+    // "More like you" only appears once there's an era to go on.
+    expect(find.text('MORE LIKE YOU · OPTIONAL'), findsNothing);
     await tapText(t, 'Minimal');
     expect(container.read(onboardingProvider).moodIds, {'minimal'});
-    await tapText(t, 'LOCK IN 1 VIBES →');
+    expect(find.text('MORE LIKE YOU · OPTIONAL'), findsOneWidget);
+    await tapText(t, 'LOCK IN 1 VIBE →');
 
-    // Colours: at least one, then the optional steps can be skipped.
+    // Colours: at least one.
     expect(find.text('COLOUR THEORY'), findsOneWidget);
-    await tapText(t, 'CALIBRATE SPECTRUM →');
-    expect(find.text('Wear at least one colour'), findsOneWidget);
+    await tapText(t, 'PICK A COLOUR TO CONTINUE');
+    expect(find.text('TAP A COLOUR ABOVE TO ADD IT'), findsOneWidget);
     await tapText(t, 'Cream');
-    await tapText(t, 'CALIBRATE SPECTRUM →');
-    for (final step in [
-      'YOUR PIECES',
-      'ACCESSORIES',
-      'LABELS',
-      'FIT & BUDGET',
-    ]) {
-      expect(find.text(step), findsOneWidget);
-      await tapText(t, 'SKIP FOR NOW');
-    }
+    await tapText(t, 'SAVE 1 COLOUR →');
 
-    // Name, then the build animation, then the ticket.
+    // Labels + spend: optional, pre-set spend, so it continues.
+    expect(find.text('LABELS'), findsOneWidget);
+    await tapText(t, 'CONTINUE →');
+
+    // Selfie: optional, and skippable without taking one.
+    expect(find.text('SEE YOURSELF IN THE FIT'), findsOneWidget);
+    expect(find.text('TAKE A SELFIE'), findsOneWidget);
+    await tapText(t, 'SKIP FOR NOW');
+
+    // Name (no name, no ticket), then the build, then the ticket.
+    await tapText(t, 'ADD YOUR NAME TO CONTINUE');
+    expect(find.text('TYPE YOUR FIRST NAME ABOVE'), findsOneWidget);
     await t.enterText(find.byType(TextField), 'Taylor');
     await t.pump();
     expect(find.text('@taylor_77'), findsOneWidget);
@@ -109,20 +114,27 @@ void main() {
     await settle(t, 4200);
     expect(find.text('YOUR DRIP TICKET.'), findsOneWidget);
     expect(find.text('Taylor'), findsWidgets);
-    await tapText(t, 'CLAIM YOUR TICKET →');
 
-    // Last step: Google sign-in, straight into the app, with every pick sent
-    // to the account.
-    expect(find.text('CONTINUE WITH GOOGLE'), findsOneWidget);
+    // The ticket carries the save: Google, with every pick sent to the
+    // account. Google only: no phone sign-in offered.
+    expect(find.text('CONTINUE WITH PHONE'), findsNothing);
     expect(container.read(sessionProvider).signedIn, isFalse);
-    await tapText(t, 'CONTINUE WITH GOOGLE');
+    await tapText(t, 'SAVE MY DRIP WITH GOOGLE');
     await settle(t, 1500);
     expect(container.read(sessionProvider).signedIn, isTrue);
     final account = await container.read(accountRepositoryProvider).me();
     expect(account.onboardingPrefs['moods'], ['minimal']);
     expect(account.onboardingPrefs['colours'], ['cream']);
     expect(account.onboardingPrefs['name'], 'Taylor');
+    expect(account.onboardingPrefs['gender'], 'female');
+    // Occasions aren't asked in onboarding (they're in Your style).
+    expect(account.onboardingPrefs['occasions'], isEmpty);
     expect(account.styleTags, ['minimal']);
+
+    // First run: the finished ticket and "your Drip is ready", then Home.
+    expect(find.text('YOUR DRIP\nIS READY.'), findsOneWidget);
+    await tapText(t, 'EXPLORE DRIP →');
+    await settle(t, 900);
 
     // Home feed.
     expect(find.text('Your story'), findsOneWidget);
@@ -177,8 +189,85 @@ void main() {
     await tapText(t, 'LOG OUT');
     await settle(t, 1200);
     expect(container.read(sessionProvider).signedIn, isFalse);
-    expect(find.text('THE FIT\nFINDS YOU.'), findsOneWidget);
+    expect(find.text('OVERDRESSED'), findsOneWidget);
     expect(container.read(sharedPreferencesProvider).getKeys(), isEmpty);
+  });
+
+  Future<void> back(WidgetTester t) async {
+    await t.tap(
+      find.byWidgetPredicate((w) => w is Tap && w.semanticLabel == 'Back'),
+    );
+    await settle(t);
+  }
+
+  testWidgets('a relaunch resumes onboarding where it left off', (t) async {
+    await boot(
+      t,
+      prefs: {
+        'onboarding.step': 'colours',
+        'onboarding.flow':
+            '{"gender":"male","moods":["minimal"],"colours":["cream"]}',
+      },
+    );
+    await settle(t, 3200);
+    expect(find.text('COLOUR THEORY'), findsOneWidget);
+    // The eyebrow says why this is asked, not how many steps are left.
+    expect(find.text('TAYLOR STYLES AROUND THESE'), findsOneWidget);
+    expect(find.text('SAVE 1 COLOUR →'), findsOneWidget);
+
+    // Back keeps what was picked.
+    await back(t);
+    expect(find.text('YOUR VIBE'), findsOneWidget);
+    expect(find.text('LOCK IN 1 VIBE →'), findsOneWidget);
+    expect(
+      container.read(sharedPreferencesProvider).getString('onboarding.step'),
+      'eras',
+    );
+  });
+
+  testWidgets('back from the ticket skips the build beat', (t) async {
+    await boot(
+      t,
+      prefs: {
+        'onboarding.step': 'ticket',
+        'onboarding.flow': '{"gender":"male","moods":["minimal"],"colours":["cream"],"name":"Taylor"}',
+      },
+    );
+    await settle(t, 3200);
+    expect(find.text('YOUR DRIP TICKET.'), findsOneWidget);
+    await back(t);
+    expect(find.text('WHAT DO WE\nCALL YOU?'), findsOneWidget);
+    expect(find.text('PRINT MY TICKET →'), findsOneWidget);
+  });
+
+  testWidgets('a step saved by an older version still resumes', (t) async {
+    // "join" no longer exists: the save is on the ticket now.
+    await boot(
+      t,
+      prefs: {
+        'onboarding.step': 'join',
+        'onboarding.flow': '{"gender":"male","moods":["minimal"],"colours":["cream"],"name":"Taylor"}',
+      },
+    );
+    await settle(t, 3200);
+    expect(find.text('YOUR DRIP TICKET.'), findsOneWidget);
+    expect(find.text('SAVE MY DRIP WITH GOOGLE'), findsOneWidget);
+  });
+
+  testWidgets('signing in without a name goes back for it', (t) async {
+    await boot(
+      t,
+      prefs: {
+        'onboarding.step': 'join',
+        'onboarding.flow':
+            '{"gender":"male","moods":["minimal"],"colours":["cream"]}',
+      },
+    );
+    await settle(t, 3200);
+    await tapText(t, 'SAVE MY DRIP WITH GOOGLE');
+    expect(container.read(sessionProvider).signedIn, isFalse);
+    expect(find.text('WHAT DO WE\nCALL YOU?'), findsOneWidget);
+    expect(find.text('ADD YOUR NAME TO FINISH YOUR TICKET'), findsOneWidget);
   });
 
   testWidgets('signed-in users skip onboarding; guards protect app routes', (
@@ -196,7 +285,7 @@ void main() {
       await settle(t, 3200);
       container.read(routerProvider).go('/wardrobe');
       await settle(t, 800);
-      expect(find.text('THE FIT\nFINDS YOU.'), findsOneWidget);
+      expect(find.text('OVERDRESSED'), findsOneWidget);
     },
   );
 }

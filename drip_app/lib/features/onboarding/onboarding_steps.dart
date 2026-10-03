@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/constants/assets.dart';
 import '../../core/motion.dart';
@@ -12,9 +14,15 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/brand.dart';
 import '../../core/widgets/drip_image.dart';
 import '../../core/widgets/tap.dart';
+import '../home/occasion_card.dart';
+import '../home/occasions.dart';
 import '../session/session_controller.dart';
+import 'local_selfie.dart';
 import 'onboarding_data.dart';
+import 'onboarding_ticket.dart';
 import 'onboarding_widgets.dart';
+
+export 'onboarding_ticket.dart' show TicketInfo;
 
 Duration _ms(num v) => Duration(milliseconds: v.round());
 
@@ -24,52 +32,11 @@ double _cell(double maxWidth, int cols, double gap) =>
 
 // ───────────────────────────────────────────────────────────────── welcome
 
+/// The first screen is the brand's opening line: the wordmark, then the
+/// hard truth struck through as it lands, then the offer. One screen where
+/// there used to be three (welcome, statement, "what is Drip").
 class WelcomeStep extends StatelessWidget {
   const WelcomeStep({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 70),
-        Enter(
-          delay: _ms(100),
-          dy: 22,
-          child: const Align(
-            alignment: Alignment.centerLeft,
-            child: DripWordmark(height: 72),
-          ),
-        ),
-        const SizedBox(height: 26),
-        Enter(
-          delay: _ms(350),
-          dy: 30,
-          child: Text(
-            'THE FIT\nFINDS YOU.',
-            style: AppText.display(44, lineHeight: 48),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Enter(
-          delay: _ms(1000),
-          dy: 22,
-          child: Text(
-            'Discover complete outfits curated for your era. Scroll, vibe, '
-            'and save fits that hit different. No crew required.',
-            style: AppText.manrope(16, color: AppColors.muted, lineHeight: 24),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────── statement
-
-class StatementStep extends StatelessWidget {
-  const StatementStep({super.key});
 
   static const _words = [
     'OVERDRESSED',
@@ -90,22 +57,36 @@ class StatementStep extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Enter(dy: 8, child: Eyebrow('HARD TRUTH №1')),
-        const SizedBox(height: 16),
+        Enter(
+          delay: _ms(50),
+          dy: 16,
+          child: const Align(
+            alignment: Alignment.centerLeft,
+            child: DripWordmark(height: 56),
+          ),
+        ),
+        const SizedBox(height: 30),
+        Enter(
+          delay: _ms(150),
+          dy: 8,
+          child: const Eyebrow('The fit finds you'),
+        ),
+        const SizedBox(height: 14),
         Wrap(
           spacing: 12,
           children: [
             for (var i = 0; i < _words.length; i++)
               Enter(
-                delay: _ms(300 + i * 90),
-                dy: 28,
+                delay: _ms(250 + i * 55),
+                dy: 22,
                 child: _Word(_words[i], struck: i == 0),
               ),
           ],
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 26),
         Enter(
-          delay: const Duration(seconds: 2),
+          delay: _ms(1300),
+          dy: 12,
           child: Text.rich(
             TextSpan(
               style: AppText.manrope(
@@ -146,7 +127,7 @@ class _WordState extends State<_Word> {
   void initState() {
     super.initState();
     if (widget.struck) {
-      _t = Timer(const Duration(milliseconds: 1300), () {
+      _t = Timer(const Duration(milliseconds: 1050), () {
         if (mounted) setState(() => _line = true);
       });
     }
@@ -176,7 +157,10 @@ class _WordState extends State<_Word> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: AnimatedFractionallySizedBox(
-                duration: const Duration(milliseconds: 500),
+                duration: Motion.dur(
+                  context,
+                  const Duration(milliseconds: 500),
+                ),
                 curve: Curves.easeOut,
                 widthFactor: _line ? 1 : 0,
                 child: Container(height: 4, color: AppColors.red),
@@ -188,103 +172,193 @@ class _WordState extends State<_Word> {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────── intro
+// ─────────────────────────────────────────────────────────────── dress for
 
-class IntroStep extends StatelessWidget {
-  const IntroStep({super.key});
+/// "Dress me for": three ticket stubs, one tap. The pick is the user's own
+/// statement of whose clothes lead their feed, never inferred from anything.
+class DressForStep extends ConsumerWidget {
+  const DressForStep({super.key, required this.onPick});
 
-  static const _cards = [
-    ('01', 'SCROLL', 'Browse handpicked editorial looks customized daily.'),
-    (
-      '02',
-      'SAVE',
-      'Double-tap to save looks to your permanent personal vault.',
-    ),
-    ('03', 'BUILD', 'Mix and match accessories, outerwear, and footwear.'),
-    ('04', 'WEAR', 'Experience your virtual try-on and step into the vibe.'),
+  /// Called with 'male', 'female' or 'unspecified'.
+  final ValueChanged<String> onPick;
+
+  static const options = [
+    ('male', 'Male', 'Menswear first'),
+    ('female', 'Female', 'Womenswear first'),
+    ('unspecified', 'Prefer not to say', 'Everything, no lean'),
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final picked = ref.watch(onboardingProvider.select((p) => p.gender));
     return Column(
       children: [
-        for (var i = 0; i < _cards.length; i++) ...[
-          if (i > 0) const SizedBox(height: 12),
+        for (var i = 0; i < options.length; i++)
           Enter(
-            delay: _ms(i * 120),
-            dy: 22,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: AppColors.elevated),
+            delay: _ms(i * 90),
+            dy: 18,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _DressCard(
+                number: i + 1,
+                title: options[i].$2,
+                line: options[i].$3,
+                on: picked == options[i].$1,
+                onTap: () => onPick(options[i].$1),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                children: [
-                  Row(
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A ticket stub: the choice on the left, a perforation, and the numbered
+/// stub on the right that takes the tick.
+class _DressCard extends StatelessWidget {
+  const _DressCard({
+    required this.number,
+    required this.title,
+    required this.line,
+    required this.on,
+    required this.onTap,
+  });
+  final int number;
+  final String title;
+  final String line;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = Motion.dur(context, Motion.quick);
+    return LabelledTap(
+      onTap: onTap,
+      selects: true,
+      scale: 0.97,
+      semanticLabel: '$title, $line${on ? ', picked' : ''}',
+      child: AnimatedScale(
+        scale: on && !Motion.reduced(context) ? 1.02 : 1,
+        duration: Motion.content,
+        curve: Motion.out,
+        child: AnimatedContainer(
+          duration: d,
+          height: 96,
+          decoration: BoxDecoration(
+            color: on
+                ? AppColors.cyan.withValues(alpha: 0.12)
+                : AppColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: on ? AppColors.cyan : AppColors.elevated,
+              width: 2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 14),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.elevated,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
                         child: Text(
-                          _cards[i].$1,
-                          style: AppText.mono(
-                            14,
-                            color: AppColors.cyan,
-                            weight: FontWeight.w500,
-                          ),
+                          title.toUpperCase(),
+                          maxLines: 1,
+                          style: AppText.display(20, lineHeight: 24),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_cards[i].$2, style: AppText.display(15)),
-                            const SizedBox(height: 6),
-                            Text(
-                              _cards[i].$3,
-                              style: AppText.manrope(
-                                14,
-                                color: AppColors.muted,
-                                lineHeight: 19,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 6),
+                      Text(
+                        line,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.manrope(
+                          13,
+                          color: on ? AppColors.cream : AppColors.muted,
                         ),
                       ),
                     ],
                   ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: -16,
-                    child: Container(
-                      height: 2,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [AppColors.red, AppColors.cyan],
+                ),
+              ),
+              // The perforation and the stub.
+              CustomPaint(
+                size: const Size(1, 64),
+                painter: _VerticalDashes(
+                  on
+                      ? AppColors.cyan.withValues(alpha: 0.6)
+                      : AppColors.cream.withValues(alpha: 0.18),
+                ),
+              ),
+              SizedBox(
+                width: 72,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '$number'.padLeft(2, '0'),
+                      style: AppText.mono(
+                        10,
+                        color: on ? AppColors.cyan : AppColors.dim,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    AnimatedContainer(
+                      duration: d,
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: on ? AppColors.cyan : AppColors.transparent,
+                        border: Border.all(
+                          color: on
+                              ? AppColors.cyan
+                              : AppColors.cream.withValues(alpha: 0.35),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: AnimatedOpacity(
+                        opacity: on ? 1 : 0,
+                        duration: d,
+                        child: Text(
+                          '✓',
+                          style: AppText.manrope(13, color: AppColors.base),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ],
+        ),
+      ),
     );
   }
+}
+
+class _VerticalDashes extends CustomPainter {
+  _VerticalDashes(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    for (var y = 0.0; y < size.height; y += 8) {
+      canvas.drawLine(Offset(0, y), Offset(0, y + 4), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VerticalDashes old) => old.color != color;
 }
 
 // ───────────────────────────────────────────────────────────── eras + genres
@@ -333,7 +407,7 @@ class ErasStep extends ConsumerWidget {
                   child: SizedBox(
                     width: era,
                     height: era,
-                    child: Tap(
+                    child: LabelledTap(
                       onTap: () {
                         final all = OnboardingData.eras.toList()..shuffle();
                         final three = all.take(3).toList();
@@ -371,32 +445,13 @@ class ErasStep extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 28),
-            const Enter(
-              delay: Duration(milliseconds: 600),
-              dy: 8,
-              child: GroupLabel('GO DEEPER · OPTIONAL'),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (var i = 0; i < OnboardingData.genres.length; i++)
-                  Enter(
-                    delay: _ms(500 + i * 50),
-                    dy: 30,
-                    child: SizedBox(
-                      width: era,
-                      height: 132,
-                      child: _GenreTile(
-                        index: i,
-                        on: picks.genres.contains(OnboardingData.genres[i]),
-                        onTap: () => c.toggleGenre(OnboardingData.genres[i]),
-                      ),
-                    ),
-                  ),
-              ],
+            AnimatedSize(
+              duration: Motion.dur(context, Motion.content),
+              curve: Motion.out,
+              alignment: Alignment.topCenter,
+              child: picks.moodIds.isEmpty
+                  ? const SizedBox(width: double.infinity)
+                  : _GoDeeper(tile: era),
             ),
           ],
         );
@@ -413,12 +468,13 @@ class _EraTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tap(
+    return LabelledTap(
       onTap: onTap,
       scale: 0.95,
       semanticLabel: '${era.label}${on ? ', picked' : ''}',
+      selects: true,
       child: AnimatedScale(
-        scale: on ? 1.02 : 1,
+        scale: on && !Motion.reduced(context) ? 1.02 : 1,
         duration: Motion.content,
         curve: Curves.easeOutBack,
         child: AnimatedContainer(
@@ -435,7 +491,7 @@ class _EraTile extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               AnimatedScale(
-                scale: on ? 1.1 : 1,
+                scale: on && !Motion.reduced(context) ? 1.1 : 1,
                 duration: const Duration(milliseconds: 700),
                 curve: Motion.out,
                 child: DripImage(Assets.image('mood_${era.id}')),
@@ -492,10 +548,11 @@ class _GenreTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = OnboardingData.genres[index];
-    return Tap(
+    return LabelledTap(
       onTap: onTap,
       scale: 0.96,
       semanticLabel: '$label${on ? ', picked' : ''}',
+      selects: true,
       child: AnimatedContainer(
         duration: Motion.quick,
         decoration: BoxDecoration(
@@ -510,7 +567,7 @@ class _GenreTile extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             AnimatedScale(
-              scale: on ? 1.1 : 1,
+              scale: on && !Motion.reduced(context) ? 1.1 : 1,
               duration: const Duration(milliseconds: 700),
               curve: Motion.out,
               child: DripImage(Assets.image(OnboardingData.genreImages[index])),
@@ -617,18 +674,29 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
                 clipBehavior: Clip.antiAlias,
                 child: Stack(
                   children: [
-                    Row(
-                      children: [
-                        for (final o in all)
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 500),
-                            curve: Motion.out,
-                            width: picks.paletteIds.contains(o.id)
-                                ? (box.maxWidth - 2) / chosen.length
-                                : 0,
-                            color: Color(o.hex),
-                          ),
-                      ],
+                    // Segments resize together; mid-animation they can add
+                    // up to more than the bar, so the row is unbounded and
+                    // the bar clips it.
+                    OverflowBox(
+                      alignment: Alignment.centerLeft,
+                      maxWidth: double.infinity,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final o in all)
+                            AnimatedContainer(
+                              duration: Motion.dur(
+                                context,
+                                const Duration(milliseconds: 500),
+                              ),
+                              curve: Motion.out,
+                              width: picks.paletteIds.contains(o.id)
+                                  ? (box.maxWidth - 2) / chosen.length
+                                  : 0,
+                              color: Color(o.hex),
+                            ),
+                        ],
+                      ),
                     ),
                     if (chosen.isEmpty)
                       Center(
@@ -674,10 +742,12 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
                   ),
                 SizedBox(
                   width: cell,
-                  child: Tap(
-                    onTap: () => setState(() => _custom = !_custom),
+                  child: LabelledTap(
+                    onTap: _toggleCustom,
                     scale: 0.9,
-                    semanticLabel: 'Add your own colour',
+                    semanticLabel: _custom
+                        ? 'Close, without adding a colour'
+                        : 'Add your own colour',
                     child: Column(
                       children: [
                         AnimatedRotation(
@@ -733,10 +803,43 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
     );
   }
 
+  void _addCustom(OnboardingController c) {
+    if (!c.addCustomColour(_name.text, _picked.toARGB32())) return;
+    widget.onGlow(_picked);
+    _name.clear();
+    setState(() => _custom = false);
+  }
+
+  /// Where the mixer lives, so opening it can bring it into view.
+  final _panel = GlobalKey();
+
+  /// "Add own" opens the mixer and brings it (down to its "add to my
+  /// palette" button) into view; nobody should have to go looking for what
+  /// they just asked for.
+  void _toggleCustom() {
+    setState(() => _custom = !_custom);
+    if (!_custom) return;
+    // Wait for the panel to finish growing, then scroll it fully on screen.
+    final grow = Motion.dur(context, Motion.content);
+    Future<void>.delayed(grow + const Duration(milliseconds: 20), () {
+      final target = _panel.currentContext;
+      if (!mounted || target == null || !target.mounted || !_custom) return;
+      Scrollable.ensureVisible(
+        target,
+        duration: grow,
+        curve: Motion.out,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
+  }
+
   Widget _customPanel(OnboardingController c) {
+    // Six of your own at most: say so on the button instead of failing late.
+    final full = ref.watch(onboardingProvider).customColours.length >= 6;
     final hex =
         '#${(_picked.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
     return Container(
+      key: _panel,
       margin: const EdgeInsets.only(top: 22),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -778,12 +881,15 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
                       child: TextField(
                         controller: _name,
                         maxLength: 16,
+                        textInputAction: TextInputAction.done,
+                        textCapitalization: TextCapitalization.words,
+                        onSubmitted: full ? null : (_) => _addCustom(c),
                         cursorColor: AppColors.red,
                         style: AppText.manrope(14),
                         decoration: InputDecoration(
                           border: InputBorder.none,
                           counterText: '',
-                          hintText: 'Name it, e.g. Mustard',
+                          hintText: 'e.g. Mustard',
                           hintStyle: AppText.manrope(
                             14,
                             color: AppColors.muted,
@@ -803,6 +909,7 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
           ),
           const SizedBox(height: 14),
           _GradientSlider(
+            label: 'Hue',
             value: _hue / 360,
             colors: [
               for (var h = 0; h <= 360; h += 60)
@@ -812,6 +919,7 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
           ),
           const SizedBox(height: 10),
           _GradientSlider(
+            label: 'Lightness',
             value: _light,
             colors: [
               HSLColor.fromAHSL(1, _hue, 0.85, 0.12).toColor(),
@@ -821,36 +929,28 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
             onChanged: (v) => setState(() => _light = v.clamp(0.1, 0.92)),
           ),
           const SizedBox(height: 16),
-          Tap(
-            onTap: () {
-              final ok = c.addCustomColour(_name.text, _picked.toARGB32());
-              if (ok) {
-                widget.onGlow(_picked);
-                _name.clear();
-                setState(() => _custom = false);
-              } else {
-                ScaffoldMessenger.maybeOf(context)
-                  ?..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    const SnackBar(content: Text('Six custom colours max')),
-                  );
-              }
-            },
+          LabelledTap(
+            onTap: full ? null : () => _addCustom(c),
             scale: 0.97,
-            semanticLabel: 'Add to my palette',
+            semanticLabel: full
+                ? 'Palette full. Remove a colour of your own to add another'
+                : 'Add to my palette',
             child: Container(
               height: 44,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: AppColors.elevated,
+                color: full
+                    ? AppColors.elevated.withValues(alpha: 0.6)
+                    : AppColors.elevated,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
-                'ADD TO MY PALETTE',
+                full ? 'PALETTE FULL · REMOVE ONE' : 'ADD TO MY PALETTE',
                 style: AppText.mono(
                   11,
                   weight: FontWeight.w500,
                   letterSpacing: 1.5,
+                  color: full ? AppColors.muted : AppColors.cream,
                 ),
               ),
             ),
@@ -863,48 +963,60 @@ class _ColoursStepState extends ConsumerState<ColoursStep> {
 
 class _GradientSlider extends StatelessWidget {
   const _GradientSlider({
+    required this.label,
     required this.value,
     required this.colors,
     required this.onChanged,
   });
+  final String label;
   final double value;
   final List<Color> colors;
   final ValueChanged<double> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    final v = value.clamp(0.0, 1.0);
     return LayoutBuilder(
       builder: (context, box) {
         void at(double dx) => onChanged((dx / box.maxWidth).clamp(0, 1));
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onPanDown: (d) => at(d.localPosition.dx),
-          onPanUpdate: (d) => at(d.localPosition.dx),
-          child: SizedBox(
-            height: 28,
-            child: Stack(
-              alignment: Alignment.centerLeft,
-              children: [
-                Container(
-                  height: 12,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(6),
-                    gradient: LinearGradient(colors: colors),
-                  ),
-                ),
-                Positioned(
-                  left: (box.maxWidth - 24) * value.clamp(0, 1),
-                  child: Container(
-                    width: 24,
-                    height: 24,
+        return Semantics(
+          slider: true,
+          label: label,
+          value: '${(v * 100).round()}%',
+          increasedValue: '${((v + 0.05).clamp(0, 1) * 100).round()}%',
+          decreasedValue: '${((v - 0.05).clamp(0, 1) * 100).round()}%',
+          onIncrease: () => onChanged((v + 0.05).clamp(0, 1)),
+          onDecrease: () => onChanged((v - 0.05).clamp(0, 1)),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanDown: (d) => at(d.localPosition.dx),
+            onPanUpdate: (d) => at(d.localPosition.dx),
+            child: SizedBox(
+              height: 28,
+              child: Stack(
+                alignment: Alignment.centerLeft,
+                children: [
+                  Container(
+                    height: 12,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.cream,
-                      border: Border.all(color: AppColors.base, width: 3),
+                      borderRadius: BorderRadius.circular(6),
+                      gradient: LinearGradient(colors: colors),
                     ),
                   ),
-                ),
-              ],
+                  Positioned(
+                    left: (box.maxWidth - 24) * value.clamp(0, 1),
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.cream,
+                        border: Border.all(color: AppColors.base, width: 3),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -935,14 +1047,15 @@ class _Swatch extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Tap(
+        LabelledTap(
           onTap: onTap,
           scale: 0.9,
           semanticLabel: '$name${on ? ', picked' : ''}',
+          selects: true,
           child: Column(
             children: [
               AnimatedScale(
-                scale: on ? 1.08 : 1,
+                scale: on && !Motion.reduced(context) ? 1.08 : 1,
                 duration: Motion.content,
                 curve: Curves.easeOutBack,
                 child: AnimatedContainer(
@@ -974,7 +1087,7 @@ class _Swatch extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 name,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: AppText.mono(
@@ -986,24 +1099,29 @@ class _Swatch extends StatelessWidget {
           ),
         ),
         if (onDelete != null)
+          // A 22px badge with a 38px hit area, so it's easy to hit and
+          // hard to miss into the swatch beneath.
           Positioned(
-            top: -6,
-            right: 2,
-            child: Tap(
+            top: -14,
+            right: -6,
+            child: LabelledTap(
               onTap: onDelete,
               semanticLabel: 'Remove $name',
-              child: Container(
-                width: 22,
-                height: 22,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.elevated,
-                  border: Border.all(
-                    color: AppColors.cream.withValues(alpha: 0.3),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.elevated,
+                    border: Border.all(
+                      color: AppColors.cream.withValues(alpha: 0.3),
+                    ),
                   ),
+                  child: Text('×', style: AppText.manrope(12)),
                 ),
-                child: Text('×', style: AppText.manrope(12)),
               ),
             ),
           ),
@@ -1133,69 +1251,89 @@ class _BrandTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tap(
+    final reduced = Motion.reduced(context);
+    final look =
+        OnboardingData.brandLooks[label] ??
+        const BrandLook(0xFF1B1D26, 0xFFE8DFC8, face: MarkFace.heavy);
+    final ink = Color(look.ink);
+    final d = Motion.dur(context, Motion.quick);
+    return LabelledTap(
       onTap: onTap,
       scale: 0.96,
       semanticLabel: '$label${on ? ', picked' : ''}',
+      selects: true,
       child: AnimatedScale(
-        scale: on ? 1.02 : 1,
+        scale: on && !reduced ? 1.02 : 1,
         duration: Motion.content,
-        curve: Curves.easeOutBack,
+        curve: Motion.out,
+        // The label's colour fills the whole tile. Unpicked, a dark veil
+        // holds the wall of colour back; picked, it lifts to full strength
+        // and takes the same cyan ring and tick as every other pick.
         child: AnimatedContainer(
-          duration: Motion.quick,
-          decoration: BoxDecoration(
-            color: on
-                ? AppColors.cyan.withValues(alpha: 0.14)
-                : AppColors.surface,
+          duration: d,
+          foregroundDecoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: on ? AppColors.cyan : AppColors.elevated,
-              width: 2,
+              color: on ? AppColors.cyan : AppColors.transparent,
+              width: 2.5,
             ),
+          ),
+          decoration: BoxDecoration(
+            color: Color(look.fill),
+            borderRadius: BorderRadius.circular(18),
           ),
           clipBehavior: Clip.antiAlias,
           child: Stack(
             children: [
-              Positioned.fill(child: CustomPaint(painter: _StripesPainter())),
               Positioned(
-                left: 10,
-                right: 10,
-                top: 10,
-                bottom: 26,
+                left: 14,
+                right: 14,
+                top: 14,
+                bottom: 28,
                 child: Center(
                   child: AnimatedScale(
-                    scale: on ? 1.08 : 1,
-                    duration: const Duration(milliseconds: 500),
+                    scale: on && !reduced ? 1.06 : 1,
+                    duration: Motion.content,
                     curve: Motion.out,
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.manrope(
-                        20,
-                        weight: FontWeight.w800,
-                        lineHeight: 22,
-                        color: AppColors.cream.withValues(alpha: 0.85),
-                      ),
-                    ),
+                    child: look.logo != null
+                        ? _Logo(
+                            asset: look.logo!,
+                            ratio: look.ratio,
+                            color: ink,
+                          )
+                        : _Wordmark(
+                            look.mark ?? label,
+                            face: look.face,
+                            color: ink,
+                          ),
                   ),
                 ),
               ),
-              Positioned(top: 8, right: 10, child: TickBadge(on: on)),
               Positioned(
-                left: 12,
-                right: 12,
-                bottom: 8,
+                left: 14,
+                right: 14,
+                bottom: 9,
                 child: Text(
                   sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppText.mono(
                     10,
-                    color: AppColors.dim,
+                    color: ink.withValues(alpha: 0.72),
                     letterSpacing: 1,
                   ),
                 ),
               ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: on ? 0 : 0.34,
+                    duration: d,
+                    child: const ColoredBox(color: AppColors.base),
+                  ),
+                ),
+              ),
+              Positioned(top: 8, right: 10, child: TickBadge(on: on)),
             ],
           ),
         ),
@@ -1204,49 +1342,230 @@ class _BrandTile extends StatelessWidget {
   }
 }
 
-class _StripesPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = AppColors.cream.withValues(alpha: 0.045)
-      ..strokeWidth = 8;
-    for (var x = -size.height; x < size.width; x += 16 * math.sqrt2) {
-      canvas.drawLine(Offset(x, 0), Offset(x + size.height, size.height), p);
-    }
-  }
+/// A brand mark at an equal *optical* size: every logo gets the same area
+/// (so a wide wordmark isn't dwarfed by a square badge), within the tile.
+class _Logo extends StatelessWidget {
+  const _Logo({required this.asset, required this.ratio, required this.color});
+  final String asset;
+  final double ratio;
+  final Color color;
+
+  static const _area = 1100.0;
 
   @override
-  bool shouldRepaint(_StripesPainter old) => false;
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        var w = math.sqrt(_area * ratio), h = math.sqrt(_area / ratio);
+        final fit = math.min(
+          1.0,
+          math.min(box.maxWidth / w, box.maxHeight / h),
+        );
+        w *= fit;
+        h *= fit;
+        return TweenAnimationBuilder<Color?>(
+          tween: ColorTween(end: color),
+          duration: Motion.dur(context, Motion.quick),
+          builder: (context, c, _) => SvgPicture.asset(
+            asset,
+            width: w,
+            height: h,
+            colorFilter: ColorFilter.mode(c ?? color, BlendMode.srcIn),
+          ),
+        );
+      },
+    );
+  }
 }
 
-// ───────────────────────────────────────────────────────────────────── fit
-
-class FitStep extends ConsumerWidget {
-  const FitStep({super.key});
+/// A label without a logo: its name, set in one of Drip's faces at a weight
+/// that sits level with the logos around it.
+class _Wordmark extends StatelessWidget {
+  const _Wordmark(this.text, {required this.face, required this.color});
+  final String text;
+  final MarkFace face;
+  final Color color;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
+    final style = switch (face) {
+      MarkFace.poster => AppText.display(17, lineHeight: 19, color: color),
+      MarkFace.round => AppText.fredoka(24, lineHeight: 26, color: color),
+      MarkFace.light => AppText.manrope(
+        23,
+        weight: FontWeight.w300,
+        lineHeight: 26,
+        letterSpacing: 0.5,
+        color: color,
+      ),
+      MarkFace.heavy => AppText.manrope(
+        19,
+        weight: FontWeight.w800,
+        lineHeight: 19,
+        color: color,
+      ),
+      MarkFace.spaced => AppText.manrope(
+        16,
+        weight: FontWeight.w800,
+        letterSpacing: 5,
+        color: color,
+      ),
+      MarkFace.tag => AppText.mono(
+        14,
+        weight: FontWeight.w500,
+        letterSpacing: 3.5,
+        color: color,
+      ),
+    };
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(text, textAlign: TextAlign.center, style: style),
+    );
+  }
+}
+
+/// "More like you": genres that go with the eras just picked, revealed once
+/// there's an era to go on. Four to six suggestions, not a wall of fourteen;
+/// the rest are one tap away.
+class _GoDeeper extends ConsumerStatefulWidget {
+  const _GoDeeper({required this.tile});
+
+  /// Tile width (two columns, like the eras).
+  final double tile;
+
+  @override
+  ConsumerState<_GoDeeper> createState() => _GoDeeperState();
+}
+
+class _GoDeeperState extends ConsumerState<_GoDeeper> {
+  bool _all = false;
+
+  @override
+  Widget build(BuildContext context) {
     final picks = ref.watch(onboardingProvider);
     final c = ref.read(onboardingProvider.notifier);
-    final budget = picks.budget;
+    final suggested = OnboardingData.suggestedGenres(picks.moodIds);
+    final shown = _all
+        ? OnboardingData.genres
+        : [
+            for (final g in OnboardingData.genres)
+              if (suggested.contains(g) || picks.genres.contains(g)) g,
+          ];
+    final more = OnboardingData.genres.length - shown.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const GroupLabel('HOW DO YOU LIKE IT TO SIT'),
-        const SizedBox(height: 10),
-        for (var i = 0; i < OnboardingData.fits.length; i++) ...[
-          if (i > 0) const SizedBox(height: 10),
-          Enter(
-            delay: _ms(i * 90),
-            dy: 16,
-            child: _FitRow(
-              fit: OnboardingData.fits[i],
-              on: picks.fit == OnboardingData.fits[i].id,
-              onTap: () => c.setFit(OnboardingData.fits[i].id),
+        const SizedBox(height: 28),
+        const GroupLabel('MORE LIKE YOU · OPTIONAL'),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final g in shown)
+              Enter(
+                key: ValueKey(g),
+                dy: 16,
+                duration: Motion.content,
+                child: SizedBox(
+                  width: widget.tile,
+                  height: 132,
+                  child: _GenreTile(
+                    index: OnboardingData.genres.indexOf(g),
+                    on: picks.genres.contains(g),
+                    onTap: () => c.toggleGenre(g),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (more > 0)
+          LabelledTap(
+            onTap: () => setState(() => _all = true),
+            semanticLabel: 'Show all ${OnboardingData.genres.length} genres',
+            child: Container(
+              height: 48,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'SHOW $more MORE ↓',
+                style: AppText.mono(
+                  11,
+                  color: AppColors.cyan,
+                  letterSpacing: 1.5,
+                ),
+              ),
             ),
           ),
-        ],
-        const SizedBox(height: 26),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────── occasions
+
+/// Where the fit needs to show up: the same occasion cards as Home's "Shop
+/// by occasion" (photo, fade, title), here as picks. The ones chosen lead
+/// that wall on Home.
+class OccasionsStep extends ConsumerWidget {
+  const OccasionsStep({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final picked = ref.watch(onboardingProvider.select((p) => p.occasions));
+    final c = ref.read(onboardingProvider.notifier);
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = _cell(box.maxWidth, 2, 12);
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (var i = 0; i < Occasions.all.length; i++)
+              Enter(
+                delay: _ms(i * 45),
+                dy: 24,
+                child: SizedBox(
+                  width: w,
+                  height: w * 1.22,
+                  child: OccasionCard(
+                    occasion: Occasions.all[i],
+                    index: i,
+                    selected: picked.contains(Occasions.all[i].id),
+                    onTap: () => c.toggleOccasion(Occasions.all[i].id),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────── labels
+
+/// Labels and spend, together: both are "how you shop".
+class LabelsStep extends StatelessWidget {
+  const LabelsStep({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [BrandsStep(), SizedBox(height: 30), BudgetPicker()],
+  );
+}
+
+/// "Usual spend per piece": the number, big, and a slider under it.
+class BudgetPicker extends ConsumerWidget {
+  const BudgetPicker({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final budget = ref.watch(onboardingProvider.select((p) => p.budget));
+    final c = ref.read(onboardingProvider.notifier);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         const GroupLabel('USUAL SPEND PER PIECE'),
         const SizedBox(height: 8),
         Text(
@@ -1268,6 +1587,8 @@ class FitStep extends ConsumerWidget {
             value: budget
                 .clamp(OnboardingData.budgetMin, OnboardingData.budgetMax)
                 .toDouble(),
+            semanticFormatterCallback: (v) =>
+                'Usual spend ${formatPrice(v.round())} a piece',
             onChanged: (v) => c.setBudget(v.round()),
           ),
         ),
@@ -1283,6 +1604,234 @@ class FitStep extends ConsumerWidget {
   }
 }
 
+// ────────────────────────────────────────────────────────────────── selfie
+
+/// "See yourself in the fit": the ticket's photo slot. Camera and gallery
+/// are the footer's buttons; this shows the slot, empty or filled, and the
+/// one promise that matters: it stays on this phone.
+class SelfieStep extends ConsumerWidget {
+  const SelfieStep({super.key, this.busy = false});
+
+  /// The camera or gallery is open.
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final photo = ref.watch(localSelfieProvider).value;
+    const paper = AppColors.cream;
+    const ink = AppColors.base;
+    // The slot gives way on short phones, so the buttons below never have
+    // to fight it for room.
+    final width = ((MediaQuery.sizeOf(context).height - 600) * 0.75).clamp(
+      150.0,
+      240.0,
+    );
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Enter(
+          dy: 18,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: width),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+                decoration: BoxDecoration(
+                  color: paper,
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x66000000),
+                      blurRadius: 36,
+                      spreadRadius: -10,
+                      offset: Offset(0, 20),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: AnimatedSwitcher(
+                              duration: Motion.dur(context, Motion.content),
+                              // The photo fills the slot, cropped, never
+                              // letterboxed.
+                              layoutBuilder: (current, previous) => Stack(
+                                fit: StackFit.expand,
+                                children: [...previous, ?current],
+                              ),
+                              child: photo == null
+                                  ? const _EmptySlot(key: ValueKey('empty'))
+                                  : Image.memory(
+                                      photo,
+                                      key: ValueKey(photo.length),
+                                      fit: BoxFit.cover,
+                                      gaplessPlayback: true,
+                                    ),
+                            ),
+                          ),
+                          if (busy)
+                            const ColoredBox(
+                              color: Color(0x660E1018),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.cream,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (photo != null && !busy)
+                            Positioned(
+                              top: 0,
+                              right: 0,
+                              child: Tap(
+                                onTap: () => ref
+                                    .read(localSelfieProvider.notifier)
+                                    .remove(),
+                                semanticLabel: 'Remove the photo',
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Container(
+                                    width: 28,
+                                    height: 28,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: ink.withValues(alpha: 0.7),
+                                    ),
+                                    child: Text(
+                                      '×',
+                                      style: AppText.manrope(16),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // Scales with the slot rather than overflowing it.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'HOLDER PHOTO',
+                            style: AppText.mono(
+                              9,
+                              color: const Color(0xFF5B5346),
+                              letterSpacing: 2,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'THIS PHONE ONLY',
+                            style: AppText.mono(
+                              9,
+                              color: const Color(0xFFC41818),
+                              letterSpacing: 1.5,
+                              weight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Never uploaded. Remove it any time.',
+          textAlign: TextAlign.center,
+          style: AppText.mono(11, color: AppColors.muted),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptySlot extends StatelessWidget {
+  const _EmptySlot({super.key});
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: const Color(0xFFD9CFB6),
+    child: DashedBorder(
+      radius: 14,
+      color: AppColors.base.withValues(alpha: 0.35),
+      width: 1.5,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.photo_camera_outlined,
+              size: 30,
+              color: AppColors.base.withValues(alpha: 0.6),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'YOUR FACE HERE',
+              style: AppText.mono(
+                10,
+                color: AppColors.base.withValues(alpha: 0.7),
+                letterSpacing: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────── fit
+
+class FitStep extends ConsumerWidget {
+  const FitStep({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final picks = ref.watch(onboardingProvider);
+    final c = ref.read(onboardingProvider.notifier);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const GroupLabel('HOW DO YOU LIKE IT TO SIT'),
+        const SizedBox(height: 10),
+        for (var i = 0; i < OnboardingData.fits.length; i++) ...[
+          if (i > 0) const SizedBox(height: 10),
+          Enter(
+            delay: _ms(i * 90),
+            dy: 16,
+            child: _FitRow(
+              fit: OnboardingData.fits[i],
+              on: picks.fit == OnboardingData.fits[i].id,
+              onTap: () => c.setFit(OnboardingData.fits[i].id),
+            ),
+          ),
+        ],
+        const SizedBox(height: 26),
+        const BudgetPicker(),
+      ],
+    );
+  }
+}
+
 class _FitRow extends StatelessWidget {
   const _FitRow({required this.fit, required this.on, required this.onTap});
   final FitOption fit;
@@ -1291,10 +1840,11 @@ class _FitRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tap(
+    return LabelledTap(
       onTap: onTap,
       scale: 0.98,
       semanticLabel: '${fit.label}, ${fit.desc}${on ? ', picked' : ''}',
+      selects: true,
       child: AnimatedContainer(
         duration: Motion.quick,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1353,23 +1903,107 @@ class _FitRow extends StatelessWidget {
 
 // ──────────────────────────────────────────────────────────── name / join
 
-class NameStep extends StatelessWidget {
+/// The little tilted Drip List Pass. On the name step it takes the name as
+/// it's typed, so the name visibly lands on the pass; on the join step it
+/// carries the access number.
+class _PassChip extends StatelessWidget {
+  const _PassChip(this.detail, {this.placeholder = false, this.photo});
+  final String detail;
+
+  /// The onboarding selfie (local), as a small round face on the pass.
+  final Uint8List? photo;
+
+  /// Nothing typed yet: the slot shows what goes there, quietly.
+  final bool placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: -3 * math.pi / 180,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.red),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (photo != null) ...[
+              ClipOval(
+                child: Image.memory(
+                  photo!,
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
+            Text('DRIP LIST PASS', style: AppText.fredoka(14)),
+            const SizedBox(width: 10),
+            Flexible(
+              child: AnimatedDefaultTextStyle(
+                duration: Motion.dur(context, Motion.quick),
+                style: AppText.mono(
+                  11,
+                  color: placeholder
+                      ? AppColors.red.withValues(alpha: 0.45)
+                      : AppColors.red,
+                ),
+                child: Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class NameStep extends ConsumerWidget {
   const NameStep({
     super.key,
     required this.controller,
     required this.handle,
     required this.onChanged,
+    required this.onSubmitted,
   });
   final TextEditingController controller;
   final String handle;
   final ValueChanged<String> onChanged;
 
+  /// The keyboard's "done": same as the button below.
+  final VoidCallback onSubmitted;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final photo = ref.watch(localSelfieProvider).value;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Enter(
+          dy: 10,
+          child: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, v, _) {
+              final name = v.text.trim();
+              return _PassChip(
+                name.isEmpty ? 'YOUR NAME' : name.toUpperCase(),
+                placeholder: name.isEmpty,
+                photo: photo,
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 22),
         const Enter(child: Eyebrow('ONE MORE THING')),
         const SizedBox(height: 12),
         Enter(
@@ -1409,6 +2043,19 @@ class NameStep extends StatelessWidget {
                 child: TextField(
                   controller: controller,
                   onChanged: onChanged,
+                  onSubmitted: (_) => onSubmitted(),
+                  // Keep focus (and the keyboard) on "done": if the name isn't
+                  // valid yet the user is still typing; if it is, the step
+                  // changes and the field goes away anyway.
+                  onEditingComplete: () {},
+                  // The only thing to do here, so the keyboard comes up ready.
+                  autofocus: controller.text.isEmpty,
+                  textInputAction: TextInputAction.done,
+                  autofillHints: const [AutofillHints.givenName],
+                  // With the keyboard up, keep the handle preview below the
+                  // field in view too: it's the feedback for what's typed.
+                  scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 64),
+                  autocorrect: false,
                   maxLength: 18,
                   textCapitalization: TextCapitalization.words,
                   cursorColor: AppColors.red,
@@ -1443,89 +2090,42 @@ class NameStep extends StatelessWidget {
   }
 }
 
-class JoinStep extends StatelessWidget {
-  const JoinStep({super.key, required this.name, required this.handle});
-  final String name;
-  final String handle;
+// ──────────────────────────────────────────────────────────────────── build
+
+/// The heading shared by the build beat and the finished ticket, so the
+/// ticket below it sits in exactly the same place on both.
+class _TicketHeader extends StatelessWidget {
+  const _TicketHeader({required this.eyebrow, required this.color});
+  final String eyebrow;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final who = (name.trim().isEmpty ? 'FRIEND' : name.trim()).toUpperCase();
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Enter(
-          dy: 10,
-          child: Transform.rotate(
-            angle: -3 * math.pi / 180,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.red),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('DRIP LIST PASS', style: AppText.fredoka(14)),
-                  const SizedBox(width: 10),
-                  Text(
-                    '#77-DRIP-9082',
-                    style: AppText.mono(11, color: AppColors.red),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 22),
-        const Enter(
-          delay: Duration(milliseconds: 100),
-          child: Eyebrow('TICKET PRINTED · LAST STEP'),
-        ),
-        const SizedBox(height: 12),
-        Enter(
-          delay: _ms(180),
+        Eyebrow(eyebrow, color: color),
+        const SizedBox(height: 8),
+        Semantics(
+          header: true,
           child: Text(
-            'ONE TAP AND YOU’RE IN, $who.',
-            style: AppText.display(34, lineHeight: 40),
+            'YOUR DRIP TICKET.',
+            textAlign: TextAlign.center,
+            style: AppText.display(26, lineHeight: 32),
           ),
-        ),
-        const SizedBox(height: 12),
-        Enter(
-          delay: _ms(260),
-          child: Text(
-            'Drip uses your Google account. No passwords to remember. '
-            'Signing in creates your account and keeps your ticket.',
-            style: AppText.manrope(15, color: AppColors.muted, lineHeight: 22),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'YOUR HANDLE',
-              style: AppText.mono(11, color: AppColors.muted),
-            ),
-            Text('@$handle', style: AppText.mono(11, color: AppColors.cyan)),
-          ],
         ),
       ],
     );
   }
 }
 
-// ──────────────────────────────────────────────────────────────────── build
-
-class BuildStep extends StatelessWidget {
-  const BuildStep({super.key, required this.progress, required this.colours});
+/// "Your Drip is being assembled": the ticket prints in front of the user,
+/// each field filling in as its line is read, then the stamp lands. Same
+/// length as before; nothing waits longer than it did.
+class BuildStep extends ConsumerWidget {
+  const BuildStep({super.key, required this.progress});
 
   /// 0–100.
   final double progress;
-  final List<Color> colours;
 
   static const _lines = [
     (0, 'Reading your eras'),
@@ -1536,224 +2136,45 @@ class BuildStep extends StatelessWidget {
   ];
 
   @override
-  Widget build(BuildContext context) {
-    final orbit = colours.isEmpty
-        ? const [AppColors.cream, AppColors.red, AppColors.cyan]
-        : colours;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final info = TicketInfo(ref.watch(onboardingProvider));
+    final line = _lines.lastWhere((l) => progress >= l.$1).$2;
+    final done = progress >= 100;
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 250,
-          height: 250,
-          child: Stack(
-            children: [
-              for (var i = 0; i < orbit.length; i++)
-                Positioned(
-                  left:
-                      125 + math.cos(i / orbit.length * math.pi * 2) * 106 - 7,
-                  top: 125 + math.sin(i / orbit.length * math.pi * 2) * 106 - 7,
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: orbit[i],
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.cream),
-                    ),
-                  ),
-                ),
-              Positioned.fill(
-                child: CustomPaint(painter: _RingPainter(progress / 100)),
-              ),
-              Center(
-                child: Text.rich(
-                  TextSpan(
-                    text: '${progress.floor()}',
-                    style: AppText.display(40),
-                    children: [
-                      TextSpan(
-                        text: '%',
-                        style: AppText.display(22, color: AppColors.cyan),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        for (var i = 0; i < _lines.length; i++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _BuildLine(
-              text: _lines[i].$2,
-              started: progress >= _lines[i].$1,
-              done:
-                  progress >= (i + 1 < _lines.length ? _lines[i + 1].$1 : 101),
+        // Announced as it changes: what's being read, and how far along.
+        Semantics(
+          liveRegion: true,
+          label: done ? 'Ticket printed' : line,
+          child: ExcludeSemantics(
+            child: _TicketHeader(
+              eyebrow: done
+                  ? 'Calibration secured'
+                  : '$line · ${progress.floor()}%',
+              color: done ? AppColors.cyan : AppColors.red,
             ),
           ),
+        ),
+        const SizedBox(height: 20),
+        DripTicket(
+          info: info,
+          progress: progress / 100,
+          photo: ref.watch(localSelfieProvider).value,
+        ),
       ],
     );
   }
 }
 
-class _BuildLine extends StatelessWidget {
-  const _BuildLine({
-    required this.text,
-    required this.started,
-    required this.done,
-  });
-  final String text;
-  final bool started;
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    final active = started && !done;
-    return AnimatedOpacity(
-      opacity: started ? 1 : 0.35,
-      duration: const Duration(milliseconds: 400),
-      child: AnimatedSlide(
-        offset: Offset(started ? 0 : 0.04, 0),
-        duration: const Duration(milliseconds: 400),
-        curve: Motion.out,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              child: Text(
-                done
-                    ? '✓'
-                    : active
-                    ? '●'
-                    : '○',
-                textAlign: TextAlign.center,
-                style: AppText.mono(
-                  12,
-                  color: done
-                      ? AppColors.cyan
-                      : active
-                      ? AppColors.red
-                      : AppColors.dim,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              text,
-              style: AppText.mono(
-                12,
-                letterSpacing: 0.5,
-                color: active
-                    ? AppColors.cream
-                    : done
-                    ? AppColors.muted
-                    : AppColors.dim,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RingPainter extends CustomPainter {
-  _RingPainter(this.t);
-  final double t;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final rect = Rect.fromCircle(center: c, radius: 80);
-    canvas.drawArc(
-      rect,
-      0,
-      math.pi * 2,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..color = AppColors.elevated,
-    );
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      math.pi * 2 * t.clamp(0, 1),
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.round
-        ..color = AppColors.red,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.t != t;
-}
-
 // ─────────────────────────────────────────────────────────────────── ticket
 
-/// What the ticket and the "prepared for you" list are built from.
-class TicketInfo {
-  TicketInfo(this.p) {
-    for (final c in OnboardingData.colours) {
-      if (p.paletteIds.contains(c.id)) colours.add((c.id, c.name, c.hex));
-    }
-    for (final c in p.customColours) {
-      if (p.paletteIds.contains(c.id)) colours.add((c.id, c.name, c.hex));
-    }
-  }
-
-  final OnboardingState p;
-  final colours = <(String, String, int)>[];
-
-  List<String> get eraLabels => [
-    for (final e in OnboardingData.eras)
-      if (p.moodIds.contains(e.id)) e.label,
-  ];
-
-  FitOption get fit => OnboardingData.fits.firstWhere(
-    (f) => f.id == p.fit,
-    orElse: () => OnboardingData.fits[1],
-  );
-
-  String get handle => handleFor(p.name);
-
-  static String handleFor(String name) {
-    final slug = name
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
-        .replaceAll(RegExp(r'^_|_$'), '');
-    return '${slug.isEmpty ? 'yourname' : slug}_77';
-  }
-
-  String get budget =>
-      '${formatPrice(p.budget)}${p.budget >= OnboardingData.budgetMax ? '+' : ''}';
-
-  String get season {
-    if (colours.isEmpty) return 'Soft Summer';
-    final warm = colours.where((c) => OnboardingData.isWarm(c.$1, c.$3)).length;
-    final cool = colours.length - warm;
-    return warm > cool
-        ? 'Warm Autumn'
-        : cool > warm
-        ? 'Cool Winter'
-        : 'Clear Spring';
-  }
-
-  int get fits =>
-      140 +
-      p.moodIds.length * 96 +
-      p.genres.length * 31 +
-      p.paletteIds.length * 12;
-}
-
 class TicketStep extends ConsumerStatefulWidget {
-  const TicketStep({super.key});
+  const TicketStep({super.key, this.printed = false});
+
+  /// Arrived straight from the build beat: the ticket is already on screen
+  /// and finished, so it stays put instead of entering again.
+  final bool printed;
 
   @override
   ConsumerState<TicketStep> createState() => _TicketStepState();
@@ -1762,52 +2183,10 @@ class TicketStep extends ConsumerStatefulWidget {
 class _TicketStepState extends ConsumerState<TicketStep> {
   double _tx = 0, _ty = 0;
 
-  static const _bars = [
-    1,
-    0,
-    0,
-    1,
-    0,
-    0,
-    1,
-    1,
-    0,
-    1,
-    0,
-    0,
-    1,
-    0,
-    1,
-    1,
-    0,
-    0,
-    1,
-    0,
-    0,
-    1,
-    0,
-    0,
-  ];
-
   @override
   Widget build(BuildContext context) {
     final info = TicketInfo(ref.watch(onboardingProvider));
     final p = info.p;
-    const ink = AppColors.base;
-    const faint = Color(0xFF5B5346);
-    const stamp = Color(0xFFC41818);
-
-    Widget label(String t) =>
-        Text(t, style: AppText.mono(9, color: faint, letterSpacing: 2));
-    Widget value(String t, {Color color = ink}) => Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        t,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: AppText.mono(12, color: color, weight: FontWeight.w500),
-      ),
-    );
 
     final prepared = [
       (
@@ -1822,7 +2201,7 @@ class _TicketStepState extends ConsumerState<TicketStep> {
       ),
       (
         'Taylor is briefed',
-        '${info.fit.label} fits, around ${info.budget} a piece${p.brands.isNotEmpty ? ', leaning ${p.brands.first}.' : '.'}',
+        '${info.fit.label} fits, around ${info.budget} a piece${p.brands.isNotEmpty ? ', leaning ${info.brandLabels.first}.' : '.'}',
       ),
       (
         '${math.max(6, p.clothes.length + p.accessories.length + 2)} starter pieces for your wardrobe',
@@ -1832,26 +2211,11 @@ class _TicketStepState extends ConsumerState<TicketStep> {
       ),
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Column(
-          children: [
-            const Eyebrow('CALIBRATION SECURED', color: AppColors.cyan),
-            const SizedBox(height: 8),
-            Text(
-              'YOUR DRIP TICKET.',
-              textAlign: TextAlign.center,
-              style: AppText.display(26, lineHeight: 32),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Enter(
-          delay: const Duration(milliseconds: 200),
-          dy: 40,
-          child: GestureDetector(
-            onPanUpdate: (d) {
+    final ticket = GestureDetector(
+      // A light tilt under the finger: something to hold, not a screenshot.
+      onPanUpdate: Motion.reduced(context)
+          ? null
+          : (d) {
               final box = context.size;
               if (box == null) return;
               setState(() {
@@ -1859,534 +2223,130 @@ class _TicketStepState extends ConsumerState<TicketStep> {
                 _ty = ((d.localPosition.dx / box.width) - .5) * 12;
               });
             },
-            onPanEnd: (_) => setState(() => _tx = _ty = 0),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-              transformAlignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.0011)
-                ..rotateX(_tx * math.pi / 180)
-                ..rotateY(_ty * math.pi / 180),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x8C000000),
-                    blurRadius: 40,
-                    offset: Offset(0, 24),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Container(
-                  // A gradient replaces `color`, so the paper tones are opaque.
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color.alphaBlend(
-                          const Color(0x99FFFFFF),
-                          AppColors.cream,
-                        ),
-                        AppColors.cream,
-                        Color.alphaBlend(
-                          const Color(0x33786950),
-                          AppColors.cream,
-                        ),
-                      ],
-                      stops: const [0, 0.45, 1],
-                    ),
-                  ),
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        right: -46,
-                        top: 34,
-                        child: Opacity(
-                          opacity: 0.075,
-                          child: Transform.rotate(
-                            angle: -8 * math.pi / 180,
-                            child: const DripWordmark(
-                              height: 250,
-                              variant: WordmarkVariant.light,
-                            ),
-                          ),
-                        ),
-                      ),
-                      Positioned.fill(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(15),
-                              border: Border.all(
-                                color: ink.withValues(alpha: 0.28),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(28, 28, 28, 20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'THE DRIP LIST',
-                                      style: AppText.mono(
-                                        10,
-                                        color: ink,
-                                        letterSpacing: 2.5,
-                                        weight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Nº 0001 · ESTD 2077',
-                                      style: AppText.mono(
-                                        10,
-                                        color: stamp,
-                                        letterSpacing: 1.5,
-                                        weight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Drip List Pass',
-                                  style: AppText.fredoka(22, color: ink),
-                                ),
-                                const SizedBox(height: 22),
-                                label('STYLE DNA'),
-                                const SizedBox(height: 6),
-                                Text(
-                                  info.eraLabels.isEmpty
-                                      ? 'YOUR ERA'
-                                      : info.eraLabels
-                                            .take(2)
-                                            .join(' + ')
-                                            .toUpperCase(),
-                                  style: AppText.display(
-                                    27,
-                                    lineHeight: 31,
-                                    color: ink,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                SizedBox(
-                                  width: 220,
-                                  height: 14,
-                                  child: DrawOn(
-                                    delay: const Duration(milliseconds: 600),
-                                    color: stamp,
-                                    width: 2.5,
-                                    builder: (s) => Path()
-                                      ..moveTo(
-                                        2 * s.width / 230,
-                                        8 * s.height / 14,
-                                      )
-                                      ..cubicTo(
-                                        40 * s.width / 230,
-                                        2 * s.height / 14,
-                                        70 * s.width / 230,
-                                        12 * s.height / 14,
-                                        110 * s.width / 230,
-                                        6 * s.height / 14,
-                                      )
-                                      ..cubicTo(
-                                        150 * s.width / 230,
-                                        0,
-                                        180 * s.width / 230,
-                                        3 * s.height / 14,
-                                        226 * s.width / 230,
-                                        9 * s.height / 14,
-                                      ),
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  p.genres.isEmpty
-                                      ? 'Every era, no rules.'
-                                      : '${p.genres.take(3).join(' · ')} energy.',
-                                  style: AppText.manrope(
-                                    13,
-                                    weight: FontWeight.w700,
-                                    lineHeight: 18,
-                                    color: const Color(0xFF3A342A),
-                                  ),
-                                ),
-                                const SizedBox(height: 20),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          label('HOLDER'),
-                                          value(
-                                            p.name.trim().isEmpty
-                                                ? 'You'
-                                                : p.name.trim(),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          label('PALETTE'),
-                                          const SizedBox(height: 6),
-                                          Wrap(
-                                            spacing: 5,
-                                            runSpacing: 5,
-                                            children: [
-                                              for (final c in info.colours.take(
-                                                6,
-                                              ))
-                                                Container(
-                                                  width: 20,
-                                                  height: 20,
-                                                  decoration: BoxDecoration(
-                                                    color: Color(c.$3),
-                                                    shape: BoxShape.circle,
-                                                    border: Border.all(
-                                                      color: ink.withValues(
-                                                        alpha: 0.55,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          label('FIT · SPEND'),
-                                          value(
-                                            '${info.fit.label} · ≤${info.budget}',
-                                          ),
-                                          const SizedBox(height: 16),
-                                          label('SEASON'),
-                                          value(info.season),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          // The perforation, with its two notches.
-                          SizedBox(
-                            height: 1,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Positioned.fill(
-                                  child: CustomPaint(
-                                    painter: _PerforationPainter(
-                                      ink.withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  left: -10,
-                                  top: -10,
-                                  child: _Notch(),
-                                ),
-                                Positioned(
-                                  right: -10,
-                                  top: -10,
-                                  child: _Notch(),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(28, 20, 28, 24),
-                            child: Column(
-                              children: [
-                                SizedBox(
-                                  height: 30,
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      for (
-                                        var i = 0;
-                                        i < _bars.length;
-                                        i++
-                                      ) ...[
-                                        if (i > 0) const SizedBox(width: 4),
-                                        Expanded(
-                                          child: DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(1),
-                                              color: ink.withValues(
-                                                alpha: _bars[i] == 1
-                                                    ? 0.88
-                                                    : 0.14,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        label('ACCESS NO'),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '#77-DRIP-9082',
-                                          style: AppText.mono(
-                                            13,
-                                            color: stamp,
-                                            weight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Transform.rotate(
-                                      angle: -12 * math.pi / 180,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(
-                                            6,
-                                          ),
-                                          border: Border.all(
-                                            color: stamp,
-                                            width: 2,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'VERIFIED ✦',
-                                          style: AppText.mono(
-                                            9,
-                                            color: stamp,
-                                            letterSpacing: 2,
-                                            weight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+      onPanEnd: (_) => setState(() => _tx = _ty = 0),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        transformAlignment: Alignment.center,
+        transform: Matrix4.identity()
+          ..setEntry(3, 2, 0.0011)
+          ..rotateX(_tx * math.pi / 180)
+          ..rotateY(_ty * math.pi / 180),
+        child: DripTicket(
+          info: info,
+          entrance: !widget.printed,
+          photo: ref.watch(localSelfieProvider).value,
+        ),
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _TicketHeader(
+          eyebrow: 'Calibration secured',
+          color: AppColors.cyan,
+        ),
+        const SizedBox(height: 20),
+        if (widget.printed)
+          ticket
+        else
+          Enter(delay: _ms(200), dy: 40, child: ticket),
+        const SizedBox(height: 22),
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Text(
+              'One tap with Google saves your Drip and creates your account. '
+              'No passwords.',
+              textAlign: TextAlign.center,
+              style: AppText.manrope(
+                14,
+                color: AppColors.muted,
+                lineHeight: 20,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 28),
-        const GroupLabel('PREPARED FOR YOU'),
-        const SizedBox(height: 12),
-        for (var i = 0; i < prepared.length; i++)
-          Enter(
-            delay: _ms(1500 + i * 180),
-            dy: 14,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.elevated),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.cyan.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        '✓',
-                        style: AppText.manrope(14, color: AppColors.cyan),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            prepared[i].$1,
-                            style: AppText.manrope(14, weight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            prepared[i].$2,
-                            style: AppText.manrope(
-                              13,
-                              color: AppColors.muted,
-                              lineHeight: 18,
+        const SizedBox(height: 26),
+        // Same width as the ticket: one composition on big screens.
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const GroupLabel('PREPARED FOR YOU'),
+                const SizedBox(height: 12),
+                for (var i = 0; i < prepared.length; i++)
+                  Enter(
+                    delay: _ms((widget.printed ? 250 : 1500) + i * 120),
+                    dy: 14,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppColors.elevated),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: AppColors.cyan.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '✓',
+                                style: AppText.manrope(
+                                  14,
+                                  color: AppColors.cyan,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    prepared[i].$1,
+                                    style: AppText.manrope(
+                                      14,
+                                      weight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    prepared[i].$2,
+                                    style: AppText.manrope(
+                                      13,
+                                      color: AppColors.muted,
+                                      lineHeight: 18,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
+              ],
             ),
           ),
+        ),
       ],
     );
   }
-}
-
-class _Notch extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 20,
-    height: 20,
-    decoration: const BoxDecoration(
-      shape: BoxShape.circle,
-      color: AppColors.base,
-    ),
-  );
-}
-
-class _PerforationPainter extends CustomPainter {
-  _PerforationPainter(this.color);
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    for (var x = 12.0; x < size.width - 12; x += 8) {
-      canvas.drawLine(Offset(x, 0), Offset(x + 4, 0), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_PerforationPainter old) => old.color != color;
-}
-
-/// Draws a stroke on along [builder]'s path after [delay] (a pen signing).
-class DrawOn extends StatefulWidget {
-  const DrawOn({
-    super.key,
-    required this.builder,
-    required this.color,
-    this.width = 2,
-    this.delay = Duration.zero,
-  });
-
-  final Path Function(Size) builder;
-  final Color color;
-  final double width;
-  final Duration delay;
-
-  @override
-  State<DrawOn> createState() => _DrawOnState();
-}
-
-class _DrawOnState extends State<DrawOn> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  );
-  Timer? _t;
-  bool _started = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_started) return;
-    _started = true;
-    if (Motion.reduced(context)) {
-      _c.value = 1;
-    } else {
-      _t = Timer(widget.delay, () {
-        if (mounted) _c.forward();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _t?.cancel();
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _c,
-    builder: (context, _) => CustomPaint(
-      painter: _DrawPainter(
-        widget.builder,
-        widget.color,
-        widget.width,
-        _c.value,
-      ),
-    ),
-  );
-}
-
-class _DrawPainter extends CustomPainter {
-  _DrawPainter(this.builder, this.color, this.width, this.t);
-  final Path Function(Size) builder;
-  final Color color;
-  final double width;
-  final double t;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = width
-      ..strokeCap = StrokeCap.round;
-    for (final m in builder(size).computeMetrics()) {
-      canvas.drawPath(m.extractPath(0, m.length * t), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DrawPainter old) => old.t != t;
 }

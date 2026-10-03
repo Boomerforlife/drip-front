@@ -80,6 +80,42 @@ class _EnterState extends State<Enter> with SingleTickerProviderStateMixin {
   }
 }
 
+/// A [Tap] whose [semanticLabel] already says everything (name and picked
+/// state), so the visuals inside aren't read out again: without this a tile
+/// reads "Minimal, ✓ ACTIVE, Minimal", even when it isn't picked.
+class LabelledTap extends StatelessWidget {
+  const LabelledTap({
+    super.key,
+    required this.onTap,
+    required this.semanticLabel,
+    required this.child,
+    this.scale = 0.97,
+    this.selects = false,
+  });
+
+  final VoidCallback? onTap;
+  final String semanticLabel;
+  final Widget child;
+  final double scale;
+
+  /// A pick (era, colour, piece, label, fit): confirmed with a selection
+  /// tick, so a choice registers by feel as well as by sight.
+  final bool selects;
+
+  @override
+  Widget build(BuildContext context) => Tap(
+    onTap: onTap == null
+        ? null
+        : () {
+            if (selects) Haptics.tick();
+            onTap!();
+          },
+    scale: scale,
+    semanticLabel: semanticLabel,
+    child: ExcludeSemantics(child: child),
+  );
+}
+
 /// Small red mono eyebrow above a headline.
 class Eyebrow extends StatelessWidget {
   const Eyebrow(this.text, {super.key, this.color = AppColors.red});
@@ -124,12 +160,13 @@ class PickPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tap(
+    return LabelledTap(
       onTap: onTap,
+      selects: true,
       scale: 0.93,
-      semanticLabel: label,
+      semanticLabel: '$label${on ? ', picked' : ''}',
       child: AnimatedScale(
-        scale: on ? 1.05 : 1,
+        scale: on && !Motion.reduced(context) ? 1.05 : 1,
         duration: Motion.quick,
         curve: Curves.easeOutBack,
         child: AnimatedContainer(
@@ -188,7 +225,7 @@ class TickBadge extends StatelessWidget {
     return AnimatedScale(
       scale: on ? 1 : 0,
       alignment: Alignment.topRight,
-      duration: Motion.content,
+      duration: Motion.dur(context, Motion.content),
       curve: Curves.easeOutBack,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

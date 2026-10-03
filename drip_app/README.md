@@ -57,7 +57,7 @@ never stored, refetched when stale.
 
 Kept in the UI but "coming after beta" when used (no v1 backend, founder decision): stories, comments, sharing,
 following, DMs and notifications, posting OOTDs, public profiles, Discover and search, profile editing, privacy
-controls, phone sign-in, photoshoot edits. The rotation flag is stored on the device (no backend field).
+controls, photoshoot edits. Phone sign-in is hidden for now (Google only). The rotation flag is stored on the device (no backend field).
 
 Still mocked on screen: the Home weather card and the bag (no checkout).
 

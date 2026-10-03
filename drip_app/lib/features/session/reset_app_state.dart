@@ -5,6 +5,7 @@ import '../activity/activity_controller.dart';
 import '../bag/bag_controller.dart';
 import '../create/create_ootd_controller.dart';
 import '../home/feed_controller.dart';
+import '../onboarding/local_selfie.dart';
 import '../outfits/outfit_controller.dart';
 import '../photoshoot/photoshoot_controller.dart';
 import '../profile/profile_controller.dart';
@@ -44,6 +45,7 @@ void resetAppState(WidgetRef ref) {
     ..invalidate(activityProvider)
     ..invalidate(settingsProvider)
     ..invalidate(onboardingProvider)
+    ..invalidate(localSelfieProvider)
     ..invalidate(recentSearchesProvider)
     ..invalidate(bagProvider)
     ..invalidate(studioProvider)

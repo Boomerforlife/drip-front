@@ -21,8 +21,10 @@ import '../../routing/main_shell.dart';
 import '../bag/bag_controller.dart';
 import '../bag/bag_sheet.dart';
 import '../outfits/outfit_controller.dart';
+import '../session/session_controller.dart';
 import '../social/social_controller.dart';
 import 'feed_controller.dart';
+import 'occasion_card.dart';
 import 'occasions.dart';
 
 /// Home: brand + inbox → stories → today (date, time, pick, Ask Taylor) →
@@ -128,6 +130,9 @@ class _HomeBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final todaysPick = fits.isEmpty ? null : fits.first;
+    // The occasions picked in onboarding lead the wall, tagged as theirs.
+    final picked = ref.watch(onboardingProvider.select((p) => p.occasions));
+    final occasions = Occasions.pickedFirst(picked);
 
     final bottom = MediaQuery.paddingOf(context).bottom;
     return RefreshIndicator(
@@ -169,6 +174,17 @@ class _HomeBody extends ConsumerWidget {
                     Occasions.all.length.toString().padLeft(2, '0'),
                     style: AppText.mono(10, color: AppColors.dim),
                   ),
+                  if (picked.isNotEmpty) ...[
+                    const Spacer(),
+                    Text(
+                      'YOURS FIRST',
+                      style: AppText.mono(
+                        10,
+                        color: AppColors.cyan,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -178,8 +194,13 @@ class _HomeBody extends ConsumerWidget {
             sliver: SliverToBoxAdapter(
               child: _StaggeredGrid(
                 children: [
-                  for (var i = 0; i < Occasions.all.length; i++)
-                    _OccasionCard(occasion: Occasions.all[i], index: i),
+                  for (var i = 0; i < occasions.length; i++)
+                    OccasionCard(
+                      occasion: occasions[i],
+                      index: Occasions.all.indexOf(occasions[i]),
+                      forYou: picked.contains(occasions[i].id),
+                      onTap: () => _openOccasion(context, occasions[i]),
+                    ),
                 ],
               ),
             ),
@@ -968,119 +989,6 @@ class _StaggeredGrid extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-/// An occasion: its name over a tinted card (a photo goes behind it later).
-class _OccasionCard extends StatelessWidget {
-  const _OccasionCard({required this.occasion, required this.index});
-  final Occasion occasion;
-  final int index;
-
-  @override
-  Widget build(BuildContext context) {
-    final radius = (20 * context.palette.roundness).clamp(12.0, 24.0);
-    final o = occasion;
-    return Tap(
-      onTap: () => _openOccasion(context, o),
-      scale: 0.97,
-      semanticLabel: 'Fits for ${o.label}',
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.lerp(o.tint, AppColors.cream, 0.10)!,
-                    Color.lerp(o.tint, AppColors.base, 0.55)!,
-                  ],
-                ),
-              ),
-            ),
-            if (o.image != null) DripImage(o.image!),
-            // Keeps the name readable once a photo sits behind it.
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment(0, -0.2),
-                  colors: [Color(0xCC0E1018), Color(0x000E1018)],
-                ),
-              ),
-            ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(radius),
-                border: Border.all(
-                  color: AppColors.cream.withValues(alpha: 0.10),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 12,
-              left: 14,
-              child: Text(
-                '${index + 1}'.padLeft(2, '0'),
-                style: AppText.mono(
-                  10,
-                  color: AppColors.cream.withValues(alpha: 0.7),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                width: 28,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.base.withValues(alpha: 0.35),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.cream.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: Text('→', style: AppText.inter(13)),
-              ),
-            ),
-            Positioned(
-              left: 14,
-              right: 14,
-              bottom: 14,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    o.label.toUpperCase(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.display(17, lineHeight: 21),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    o.line,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.manrope(
-                      11,
-                      color: AppColors.cream.withValues(alpha: 0.72),
-                      lineHeight: 15,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

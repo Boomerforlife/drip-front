@@ -11,9 +11,9 @@ import '../theme/app_theme.dart';
 import 'glass.dart';
 import 'nav_glyphs.dart';
 
-/// The four primary destinations. The Studio star sits between them and is an
-/// action (it opens Studio), not a tab.
-enum NavTab { home, scroll, wardrobe, you }
+/// The five destinations, in bar (and swipe) order. Studio is the star in
+/// the middle.
+enum NavTab { home, scroll, studio, wardrobe, you }
 
 /// Geometry shared by the bar and by screens that scroll underneath it.
 abstract final class NavMetrics {
@@ -31,14 +31,14 @@ abstract final class NavMetrics {
       height + bottomInset(context) + 6;
 }
 
-/// Slot layout: [home, scroll, STUDIO, wardrobe, you].
+/// Slot layout: [home, scroll, studio, wardrobe, you].
 const _tabSlots = {
   NavTab.home: 0,
   NavTab.scroll: 1,
+  NavTab.studio: 2,
   NavTab.wardrobe: 3,
   NavTab.you: 4,
 };
-const _studioSlot = 2;
 const _slotCount = 5;
 
 /// Floating glass navigation.
@@ -52,16 +52,10 @@ const _slotCount = 5;
 /// The gesture is scoped to the bar itself, so it can never fight the vertical
 /// scroll of the feed above it.
 class DripBottomNav extends StatefulWidget {
-  const DripBottomNav({
-    super.key,
-    required this.active,
-    required this.onTab,
-    required this.onStudio,
-  });
+  const DripBottomNav({super.key, required this.active, required this.onTab});
 
   final NavTab? active;
   final ValueChanged<NavTab> onTab;
-  final VoidCallback onStudio;
 
   @override
   State<DripBottomNav> createState() => _DripBottomNavState();
@@ -84,7 +78,7 @@ class _DripBottomNavState extends State<DripBottomNav>
   static NavTab _tabAt(int slot) =>
       _tabSlots.entries.firstWhere((e) => e.value == slot).key;
 
-  /// Snap a slot-space position to the nearest *tab* slot (skips create).
+  /// Snap a slot-space position to the nearest tab slot.
   static int _nearestTabSlot(double pos) {
     var best = 0;
     var bestD = double.infinity;
@@ -217,16 +211,14 @@ class _DripBottomNavState extends State<DripBottomNav>
                         for (var slot = 0; slot < _slotCount; slot++)
                           SizedBox(
                             width: _slotWidth,
-                            child: slot == _studioSlot
-                                ? _StudioButton(onTap: widget.onStudio)
-                                : _TabButton(
-                                    tab: _tabAt(slot),
-                                    lit: (widget.active == null && !_dragging)
-                                        ? 0
-                                        : (1 - (pos - slot).abs()).clamp(0, 1),
-                                    selected: widget.active == _tabAt(slot),
-                                    onTap: () => _tapTab(_tabAt(slot)),
-                                  ),
+                            child: _TabButton(
+                              tab: _tabAt(slot),
+                              lit: (widget.active == null && !_dragging)
+                                  ? 0
+                                  : (1 - (pos - slot).abs()).clamp(0, 1),
+                              selected: widget.active == _tabAt(slot),
+                              onTap: () => _tapTab(_tabAt(slot)),
+                            ),
                           ),
                       ],
                     ),
@@ -313,6 +305,7 @@ class _TabButtonState extends State<_TabButton> {
   static String _label(NavTab t) => switch (t) {
     NavTab.home => 'Home',
     NavTab.scroll => 'Fashion Scroll',
+    NavTab.studio => 'Studio',
     NavTab.wardrobe => 'Wardrobe',
     NavTab.you => 'You',
   };
@@ -320,6 +313,13 @@ class _TabButtonState extends State<_TabButton> {
   Widget _glyph(Color color, double lit) => switch (widget.tab) {
     NavTab.home => HomeGlyph(color: color, glow: lit, size: 24),
     NavTab.scroll => ReelGlyph(color: color, glow: lit, size: 32),
+    // The STUDIO star (the supplied artwork), always in the skin's accent.
+    NavTab.studio => SvgPicture.asset(
+      Assets.navStudio,
+      width: 34,
+      height: 34 * 460 / 480,
+      colorFilter: ColorFilter.mode(context.palette.accent, BlendMode.srcIn),
+    ),
     NavTab.wardrobe => SvgPicture.asset(
       Assets.navBriefcase,
       width: 24,
@@ -354,52 +354,6 @@ class _TabButtonState extends State<_TabButton> {
           duration: const Duration(milliseconds: 90),
           curve: Motion.out,
           child: Center(child: _glyph(color, lit)),
-        ),
-      ),
-    );
-  }
-}
-
-class _StudioButton extends StatefulWidget {
-  const _StudioButton({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  State<_StudioButton> createState() => _StudioButtonState();
-}
-
-class _StudioButtonState extends State<_StudioButton> {
-  bool _down = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = context.palette.accent;
-    return Semantics(
-      button: true,
-      label: 'Studio',
-      excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _down = true),
-        onTapUp: (_) => setState(() => _down = false),
-        onTapCancel: () => setState(() => _down = false),
-        onTap: () {
-          Haptics.commit();
-          widget.onTap();
-        },
-        child: Center(
-          child: AnimatedScale(
-            scale: _down ? 0.9 : 1,
-            duration: const Duration(milliseconds: 90),
-            curve: Motion.out,
-            // The STUDIO star, from the supplied artwork (angular "STAR" mark).
-            child: SvgPicture.asset(
-              Assets.navStudio,
-              width: 36,
-              height: 36 * 460 / 480,
-              colorFilter: ColorFilter.mode(accent, BlendMode.srcIn),
-            ),
-          ),
         ),
       ),
     );

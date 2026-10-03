@@ -21,8 +21,10 @@ import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../data/models/outfit.dart';
 import '../home/feed_controller.dart';
+import '../home/occasions.dart';
 import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
+import '../outfits/shop_sheet.dart';
 
 /// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
 ///
@@ -36,10 +38,14 @@ import '../outfits/outfit_controller.dart';
 /// small glass element, so the photograph stays the hero. A post's details
 /// stay folded away until its caption is tapped.
 class FashionScrollScreen extends ConsumerStatefulWidget {
-  const FashionScrollScreen({super.key, this.startId});
+  const FashionScrollScreen({super.key, this.startId, this.occasion});
 
   /// Fit to open on (from Home). Null starts at the top of the feed.
   final String? startId;
+
+  /// Only fits that suit this occasion (an `Occasions` id), from Home's
+  /// occasion cards. Null is the full feed.
+  final String? occasion;
 
   @override
   ConsumerState<FashionScrollScreen> createState() =>
@@ -52,6 +58,9 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
 
   /// Start loading the next page this many cards before the end.
   static const _prefetch = 3;
+
+  /// The feed this Scroll reads: the full one, or an occasion's.
+  late final _feedProvider = scrollFeedProvider(widget.occasion);
 
   PageController? _pc;
   int _page = 0;
@@ -93,7 +102,7 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
     final id = i < items.length ? items[i].id : null;
     if (id == _viewingId) return;
     _reportView();
-    _feed = ref.read(feedProvider.notifier);
+    _feed = ref.read(_feedProvider.notifier);
     _viewingId = id;
     _viewing
       ..reset()
@@ -117,7 +126,7 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
     _precache(feed.items, i);
     _startViewing(feed.items, i);
     if (i >= feed.items.length - _prefetch) {
-      ref.read(feedProvider.notifier).loadMore();
+      ref.read(_feedProvider.notifier).loadMore();
     }
   }
 
@@ -136,7 +145,7 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final feed = ref.watch(feedProvider);
+    final feed = ref.watch(_feedProvider);
     return PopScope(
       canPop: context.canPop(),
       onPopInvokedWithResult: (didPop, _) {
@@ -146,9 +155,32 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
       child: feed.when(
         loading: () => const _ReelSkeleton(),
         error: (e, _) =>
-            ErrorState.from(e, onRetry: () => ref.invalidate(feedProvider)),
+            ErrorState.from(e, onRetry: () => ref.invalidate(_feedProvider)),
         data: (state) {
           final items = state.items;
+          final occasion = Occasions.byId(widget.occasion);
+          if (items.isEmpty && occasion != null) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                EmptyState(
+                  title: 'NOTHING FOR ${occasion.label.toUpperCase()} YET',
+                  message:
+                      'No fits in the catalogue suit this one yet. More '
+                      'land every day.',
+                  actionLabel: 'BROWSE EVERYTHING',
+                  onAction: () => context.go('/scroll'),
+                ),
+                if (context.canPop())
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: _TopChrome(onBack: _back, label: occasion.label),
+                  ),
+              ],
+            );
+          }
           if (items.isEmpty) {
             return EmptyState(
               title: 'FRESH FITS INCOMING',
@@ -156,7 +188,7 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
                   "Drip's catalogue is still being stocked. New fits land "
                   "here as soon as they're ready.",
               actionLabel: 'CHECK AGAIN',
-              onAction: () => ref.invalidate(feedProvider),
+              onAction: () => ref.invalidate(_feedProvider),
             );
           }
           final pc = _controllerFor(items);
@@ -185,16 +217,19 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
                     : _FeedTail(
                         state: state,
                         onRetry: () =>
-                            ref.read(feedProvider.notifier).loadMore(),
+                            ref.read(_feedProvider.notifier).loadMore(),
                         onTop: _toTop,
                       ),
               ),
-              if (context.canPop())
+              if (context.canPop() || occasion != null)
                 Positioned(
                   top: 0,
                   left: 0,
                   right: 0,
-                  child: _TopChrome(onBack: _back),
+                  child: _TopChrome(
+                    onBack: context.canPop() ? _back : null,
+                    label: occasion?.label,
+                  ),
                 ),
             ],
           );
@@ -235,9 +270,12 @@ class _FeedTail extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────── chrome
 
 class _TopChrome extends StatelessWidget {
-  const _TopChrome({required this.onBack});
+  const _TopChrome({required this.onBack, this.label});
 
   final VoidCallback? onBack;
+
+  /// The occasion being browsed, shown as a chip.
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
@@ -257,6 +295,22 @@ class _TopChrome extends StatelessWidget {
                   color: AppColors.cream,
                 ),
               ),
+            if (label != null) ...[
+              const SizedBox(width: 10),
+              Glass(
+                radius: 18,
+                thickness: GlassThickness.thin,
+                shadow: false,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
+                child: Text(
+                  'FITS FOR ${label!.toUpperCase()}',
+                  style: AppText.mono(10, letterSpacing: 1.2),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -887,7 +941,8 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-/// Piece count and total price of the fit. Tapping opens the full breakdown.
+/// Piece count and total price of the fit. Tapping opens "Shop the look" over the feed: each
+/// piece links to its product page.
 class _ShopStrip extends ConsumerWidget {
   const _ShopStrip({required this.outfit});
   final Outfit outfit;
@@ -900,7 +955,11 @@ class _ShopStrip extends ConsumerWidget {
     return Tap(
       onTap: () {
         ref.read(feedProvider.notifier).signal(outfit.id, 'open');
-        context.push('/outfit/${outfit.id}');
+        showShopSheet(
+          context,
+          outfit,
+          onFullBreakdown: () => context.push('/outfit/${outfit.id}'),
+        );
       },
       semanticLabel: 'Shop the look: ${outfit.title}',
       scale: 0.98,

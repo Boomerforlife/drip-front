@@ -5,194 +5,385 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/app_button.dart';
+import '../../core/utils/format.dart';
 import '../../core/widgets/drip_image.dart';
+import '../../core/widgets/glass.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
 import '../../data/mock/mock_content.dart';
+import '../../data/models/studio.dart';
+import '../../data/providers.dart';
 import '../../routing/main_shell.dart';
+import '../outfits/outfit_controller.dart';
 import '../wardrobe/wardrobe_controller.dart';
+import 'fit_canvas.dart';
 import 'studio_controller.dart';
 
+/// Drip Studio: where you make your own fits (a blank canvas, pieces from
+/// the catalogue or your wardrobe), keep them, and later see your Gen photos.
 class StudioHomeScreen extends ConsumerWidget {
   const StudioHomeScreen({super.key});
 
+  void _open(BuildContext context, WidgetRef ref, {required bool wardrobe}) {
+    ref.read(studioProvider.notifier).useSource(wardrobe: wardrobe);
+    context.push('/studio/builder');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final accent = context.palette.accent;
+    final lib = ref.watch(libraryProvider);
+    final mine = lib.value?.mine ?? const <UserFit>[];
+    final gen = lib.value?.gen ?? const <GenJob>[];
+
     return ShellPage(
       child: Column(
         children: [
-          DripTopBar(
-            title: 'DRIP STUDIO',
-            leading: const BackGlyph(),
-            trailing: GlyphButton(
-              '⚡',
-              label: 'Studio engine',
-              onTap: () => showDripToast(context, 'OOTD Engine v1.0 · online'),
-            ),
-          ),
+          const DripTopBar(title: 'DRIP STUDIO'),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
+            child: RefreshIndicator(
+              color: context.palette.accent,
+              backgroundColor: AppColors.surface,
+              onRefresh: () async {
+                ref.invalidate(libraryProvider);
+                await ref.read(libraryProvider.future);
+              },
+              child: ListView(
+                // A tab root draws under the floating bar: clear it.
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  4,
+                  16,
+                  24 + MediaQuery.paddingOf(context).bottom,
+                ),
                 children: [
-                  _Hero(),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        _EntryCard(
-                          glyph: '🛠',
-                          title: 'BUILD FROM SCRATCH',
-                          subtitle: 'Select piece by piece on active model',
-                          borderColor: accent,
-                          onTap: () {
-                            ref
-                                .read(studioProvider.notifier)
-                                .useSource(wardrobe: false);
-                            context.push('/studio/builder');
+                  _NewFitCard(
+                    onTap: () => _open(context, ref, wardrobe: false),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _SmallCard(
+                          icon: Icons.checkroom_rounded,
+                          title: 'From my wardrobe',
+                          subtitle: 'Your own pieces',
+                          onTap: () async {
+                            await ref.read(wardrobeProvider.future);
+                            if (context.mounted) {
+                              _open(context, ref, wardrobe: true);
+                            }
                           },
                         ),
-                        const SizedBox(height: 12),
-                        _EntryCard(
-                          glyph: '🔄',
-                          title: 'REMIX A FIT',
-                          subtitle: 'A random fit from the catalogue to riff on',
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _SmallCard(
+                          icon: Icons.shuffle_rounded,
+                          title: 'Surprise me',
+                          subtitle: 'A random fit to riff on',
                           onTap: () {
                             ref.read(studioProvider.notifier)
                               ..useSource(wardrobe: false)
                               ..randomize();
-                            showDripToast(
-                              context,
-                              'Remixed from the catalogue',
-                            );
                             context.push('/studio/builder');
                           },
                         ),
-                        const SizedBox(height: 12),
-                        _EntryCard(
-                          glyph: '📦',
-                          title: 'USE MY WARDROBE',
-                          subtitle: 'Digitized real garments uploaded by you',
-                          onTap: () async {
-                            await ref.read(wardrobeProvider.future);
-                            ref
-                                .read(studioProvider.notifier)
-                                .useSource(wardrobe: true);
-                            if (context.mounted) {
-                              context.push('/studio/builder');
-                            }
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  _SectionHeader(
+                    'YOUR FITS',
+                    count: mine.isEmpty ? null : mine.length,
+                  ),
+                  const SizedBox(height: 12),
+                  if (mine.isEmpty)
+                    _EmptyNote(
+                      lib.isLoading
+                          ? 'Loading your fits…'
+                          : 'Fits you build and save land here.',
+                    )
+                  else
+                    SizedBox(
+                      // Canvas (118 wide at 9:16 = 210) + name + meta.
+                      height: 262,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: mine.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (context, i) => _FitCard(
+                          fit: mine[i],
+                          onTap: () {
+                            ref.read(studioProvider.notifier).load(mine[i]);
+                            context.push('/studio/builder');
                           },
                         ),
-                        const SizedBox(height: 16),
-                        _TaylorPromo(onTap: () => context.push('/stylist')),
-                      ],
+                      ),
+                    ),
+                  const SizedBox(height: 28),
+                  const _SectionHeader('GEN PHOTOS'),
+                  const SizedBox(height: 12),
+                  if (gen.isEmpty)
+                    _GenPlaceholder(
+                      onTap: () =>
+                          showAfterBeta(context, 'AI photoshoots of your fits'),
+                    )
+                  else
+                    SizedBox(
+                      height: 170,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: gen.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 10),
+                        itemBuilder: (context, i) => ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: SizedBox(
+                            width: 120,
+                            child: DripImage(gen[i].outputUrl ?? ''),
+                          ),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 28),
+                  _TaylorPromo(onTap: () => context.push('/stylist')),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The main way in: a blank canvas, previewed with its "add" outlines.
+class _NewFitCard extends StatelessWidget {
+  const _NewFitCard({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = context.palette.accent;
+    return Tap(
+      onTap: onTap,
+      scale: 0.98,
+      semanticLabel: 'Start a new fit on a blank canvas',
+      child: Glass(
+        radius: 24,
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 104,
+              child: IgnorePointer(child: FitCanvas(worn: {}, radius: 14)),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'BLANK CANVAS',
+                    style: AppText.mono(10, color: accent, letterSpacing: 1.6),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'BUILD YOUR\nOWN FIT',
+                    style: AppText.display(20, lineHeight: 24),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Pick pieces from the Drip catalogue. Each one lands '
+                    'in its place on the canvas.',
+                    style: AppText.manrope(
+                      12,
+                      color: AppColors.muted,
+                      lineHeight: 17,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'START A NEW FIT  →',
+                    style: AppText.mono(
+                      11,
+                      color: accent,
+                      weight: FontWeight.w500,
+                      letterSpacing: 1.2,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _Hero extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 180,
-      decoration: const BoxDecoration(
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DripImage(MockContent.studioHero),
-          const ColoredBox(color: Color(0x660E1018)),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: context.palette.accent,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'OOTD ENGINE V1.0',
-                    style: AppText.mono(8, color: AppColors.base),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text('CALIBRATE YOUR LOOK', style: AppText.display(22)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EntryCard extends StatelessWidget {
-  const _EntryCard({
-    required this.glyph,
+class _SmallCard extends StatelessWidget {
+  const _SmallCard({
+    required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.borderColor,
   });
-
-  final String glyph;
+  final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
     return Tap(
       onTap: onTap,
+      scale: 0.97,
       semanticLabel: title,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: borderColor == null ? null : Border.all(color: borderColor!),
-        ),
-        child: Row(
+      child: Glass(
+        radius: 18,
+        thickness: GlassThickness.thin,
+        shadow: false,
+        padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(width: 24, child: Text(glyph, style: AppText.inter(24))),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: AppText.display(14)),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppText.manrope(11, color: AppColors.muted),
-                  ),
-                ],
-              ),
-            ),
-            Text('→', style: AppText.inter(16)),
+            Icon(icon, size: 20, color: context.palette.accent),
+            const SizedBox(height: 12),
+            Text(title, style: AppText.manrope(13, weight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(subtitle, style: AppText.manrope(11, color: AppColors.muted)),
           ],
         ),
       ),
     );
+  }
+}
+
+/// A saved fit, drawn as a small canvas.
+class _FitCard extends StatelessWidget {
+  const _FitCard({required this.fit, required this.onTap});
+  final UserFit fit;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = [
+      if (fit.dripRate != null) '✦ ${fit.dripRate}',
+      if ((fit.price ?? 0) > 0) formatPrice(fit.price!),
+    ].join('  ·  ');
+    return Tap(
+      onTap: onTap,
+      scale: 0.97,
+      semanticLabel: 'Open ${fit.name}',
+      child: SizedBox(
+        width: 118,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Consumer(
+              builder: (context, ref, _) => FitCanvas(
+                worn: wornForFit(fit, ref.read(localStoreProvider)),
+                placed: savedPlacement(
+                  ref.read(localStoreProvider).studioPositions(fit.id),
+                ),
+                compact: true,
+                radius: 14,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              fit.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.manrope(12, weight: FontWeight.w700),
+            ),
+            if (meta.isNotEmpty)
+              Text(meta, style: AppText.mono(9, color: AppColors.muted)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GenPlaceholder extends StatelessWidget {
+  const _GenPlaceholder({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tap(
+      onTap: onTap,
+      scale: 0.98,
+      semanticLabel: 'Gen photos, coming after beta',
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.elevated),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.auto_awesome_rounded,
+              size: 22,
+              color: AppColors.muted,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                'See yourself in your fits. AI photoshoots of the looks you '
+                'build will live here.',
+                style: AppText.manrope(
+                  12,
+                  color: AppColors.muted,
+                  lineHeight: 17,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'AFTER BETA',
+              style: AppText.mono(9, color: AppColors.dim, letterSpacing: 1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.text, {this.count});
+  final String text;
+  final int? count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(text, style: AppText.display(14)),
+        if (count != null) ...[
+          const SizedBox(width: 8),
+          Text(
+            '$count'.padLeft(2, '0'),
+            style: AppText.mono(10, color: AppColors.dim),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _EmptyNote extends StatelessWidget {
+  const _EmptyNote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(text, style: AppText.manrope(12, color: AppColors.muted));
   }
 }
 
@@ -202,42 +393,43 @@ class _TaylorPromo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.elevated,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.cyan),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 24,
-                height: 24,
-                child: ClipOval(
-                  child: DripImage(MockContent.taylorAvatarSmall),
-                ),
+    return Tap(
+      onTap: onTap,
+      scale: 0.98,
+      semanticLabel: 'Ask Taylor, the AI stylist',
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.elevated),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 32,
+              height: 32,
+              child: ClipOval(child: DripImage(MockContent.taylorAvatarSmall)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Stuck? Ask Taylor',
+                    style: AppText.manrope(13, weight: FontWeight.w700),
+                  ),
+                  Text(
+                    'Pick an occasion and a vibe, get a fit.',
+                    style: AppText.manrope(11, color: AppColors.muted),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                '✦ TAYLOR AI ASSISTANT',
-                style: AppText.mono(10, color: AppColors.cyan),
-              ),
-              const Spacer(),
-              Text('ONLINE', style: AppText.mono(9, color: AppColors.muted)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '"Got an event? Tell me what\'s the occasion and your desired vibe. I\'ll frame a blueprint fit instantly."',
-            style: AppText.manrope(13),
-          ),
-          const SizedBox(height: 12),
-          AppButton(label: 'CONSULT STYLIST ✦', height: 36, onPressed: onTap),
-        ],
+            ),
+            Text('→', style: AppText.inter(16, color: context.palette.accent)),
+          ],
+        ),
       ),
     );
   }

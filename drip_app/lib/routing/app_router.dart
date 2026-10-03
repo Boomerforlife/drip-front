@@ -220,7 +220,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/scroll',
             pageBuilder: (context, state) => tabPage(
               state,
-              FashionScrollScreen(startId: state.uri.queryParameters['id']),
+              FashionScrollScreen(
+                // A new occasion is a new feed, so give it its own page.
+                key: ValueKey(state.uri.queryParameters['occasion']),
+                startId: state.uri.queryParameters['id'],
+                occasion: state.uri.queryParameters['occasion'],
+              ),
             ),
           ),
           _page('/create', (_) => const CreateOotdScreen()),
@@ -234,7 +239,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             '/outfit/:id',
             (s) => OutfitDetailScreen(outfitId: s.pathParameters['id']!),
           ),
-          _page('/studio', (_) => const StudioHomeScreen()),
+          GoRoute(
+            path: '/studio',
+            pageBuilder: (context, state) =>
+                tabPage(state, const StudioHomeScreen()),
+          ),
           _page('/studio/builder', (_) => const OutfitBuilderScreen()),
           GoRoute(
             path: '/wardrobe',

@@ -1,11 +1,23 @@
-/// Build-time configuration, passed with `--dart-define` (or
-/// `--dart-define-from-file=config/dev.json`). Nothing here is secret: the app
-/// only ever gets the API address, the Supabase URL and the *publishable* key.
+/// Backend configuration. Defaults are baked in; override with `--dart-define`
+/// (or `--dart-define-from-file=config/dev.json`). Nothing here is secret: the
+/// app only ever gets the API address, the Supabase URL and the *publishable*
+/// key, never a service key.
 abstract final class Env {
-  static const apiBaseUrl = String.fromEnvironment('API_BASE_URL');
-  static const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  // Defaults point at the live beta backend, so a plain `flutter run` (an IDE
+  // run button, Antigravity, `flutter build`) works without any flags. These
+  // are public values: the publishable key ships in every build by design and
+  // Row Level Security protects the data. Pass a --dart-define to override.
+  static const apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://drip-backend-production-dc7f.up.railway.app',
+  );
+  static const supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://arpqhpnmuifqjtbqomrh.supabase.co',
+  );
   static const supabasePublishableKey = String.fromEnvironment(
     'SUPABASE_PUBLISHABLE_KEY',
+    defaultValue: 'sb_publishable_4nPyv0VB8QMqbVMniUwenw_mcLaaTzy',
   );
 
   /// Where Google sends the user back after sign-in (Android / iOS). Must be

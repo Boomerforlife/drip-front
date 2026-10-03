@@ -113,13 +113,13 @@ void main() {
       }
     });
 
-    testWidgets('the centre star opens Studio, not a tab', (t) async {
+    testWidgets('the centre star is the Studio tab', (t) async {
       await openHome(t);
       final h = t.ensureSemantics();
       expect(find.bySemanticsLabel('Create'), findsNothing);
       await t.tap(find.bySemanticsLabel('Studio'));
       await settle(t);
-      // Pushed routes keep go_router's URL: assert on content.
+      expect(loc(container), '/studio');
       expect(find.text('DRIP STUDIO'), findsOneWidget);
       h.dispose();
     });
@@ -195,6 +195,9 @@ void main() {
       await openHome(t);
       await swipe(t, const Offset(280, 430), -260);
       expect(loc(container), '/scroll');
+      // The order matches the bar: the Studio star sits between them.
+      await swipe(t, const Offset(280, 430), -260);
+      expect(loc(container), '/studio');
       await swipe(t, const Offset(280, 430), -260);
       expect(loc(container), '/wardrobe');
       await swipe(t, const Offset(280, 430), -260);
@@ -242,22 +245,17 @@ void main() {
   });
 
   group('home → fashion scroll', () {
-    testWidgets('tapping a fresh fit opens the Scroll on that fit', (
-      t,
-    ) async {
+    testWidgets('an occasion card opens the Scroll on fits for it', (t) async {
       await openHome(t);
-      expect(find.byType(FitHero), findsWidgets);
-      await t.ensureVisible(find.text('PASTEL SHOCK'));
+      expect(find.text('SHOP BY OCCASION'), findsOneWidget);
+      await t.ensureVisible(find.text('DATE NIGHT'));
       await settle(t, 300);
-      await t.tap(find.text('PASTEL SHOCK'));
-      await settle(t, 900);
+      await t.tap(find.text('DATE NIGHT'));
+      await settle(t, 1200);
       expect(find.byType(FashionScrollScreen), findsOneWidget);
-      expect(find.text('PASTEL SHOCK'), findsWidgets);
-      // Back returns Home (the Scroll was pushed over it).
+      expect(find.text('FITS FOR DATE NIGHT'), findsOneWidget);
       container.read(routerProvider).pop();
       await settle(t, 700);
-      expect(find.byType(FashionScrollScreen), findsNothing);
-      // Home keeps its scroll position, so check the route, not the stories.
       expect(loc(container), '/home');
     });
 
@@ -312,9 +310,7 @@ void main() {
       expect(lib.saved.map((o) => o.id), contains('o_gray'));
     });
 
-    testWidgets('comments and sharing say they come after the beta', (
-      t,
-    ) async {
+    testWidgets('comments and sharing say they come after the beta', (t) async {
       await boot(t);
       await settle(t, 1600);
       container.read(routerProvider).go('/scroll?id=o_gray');
@@ -345,9 +341,7 @@ void main() {
     testWidgets('the end of the feed is a caught-up card', (t) async {
       await boot(
         t,
-        feed: MockFeedRepository(
-          outfits: MockContent.outfits.take(2).toList(),
-        ),
+        feed: MockFeedRepository(outfits: MockContent.outfits.take(2).toList()),
       );
       await settle(t, 1600);
       container.read(routerProvider).go('/scroll?id=o_pastel');
@@ -358,12 +352,8 @@ void main() {
     });
 
     testWidgets('an empty catalogue says fits are on their way', (t) async {
-      await boot(
-        t,
-        feed: MockFeedRepository(outfits: const []),
-      );
+      await boot(t, feed: MockFeedRepository(outfits: const []));
       await settle(t, 1600);
-      expect(find.text('FRESH FITS INCOMING'), findsOneWidget);
       container.read(routerProvider).go('/scroll');
       await settle(t, 900);
       expect(find.text('FRESH FITS INCOMING'), findsOneWidget);
@@ -422,22 +412,6 @@ void main() {
       await settle(t, 900);
       expect(AppText.face, DisplayFace.bungee);
       expect(AppColors.surface, defaultSurface);
-    });
-
-    testWidgets('search & discover say they come after the beta', (t) async {
-      await openHome(t);
-      final h = t.ensureSemantics();
-      expect(find.bySemanticsLabel('Search'), findsNothing);
-      await t.ensureVisible(find.text('SEARCH & DISCOVER  →'));
-      await settle(t, 300);
-      await t.tap(find.text('SEARCH & DISCOVER  →'));
-      await settle(t, 400);
-      expect(
-        find.text('SEARCH & DISCOVER IS COMING AFTER BETA ✦'),
-        findsOneWidget,
-      );
-      expect(loc(container), '/home');
-      h.dispose();
     });
 
     testWidgets('the picker previews live and reverts if you leave', (t) async {

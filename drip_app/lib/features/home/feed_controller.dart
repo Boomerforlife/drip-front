@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/ootd.dart';
 import '../../data/models/outfit.dart';
 import '../../data/providers.dart';
+import 'occasions.dart';
 
 /// The Fashion Scroll: ranked, not-seen [Outfit]s, a page at a time.
 class FeedState {
@@ -35,11 +36,48 @@ class FeedState {
   );
 }
 
+/// The ranked feed, or (with an [occasion]) only the fits that suit it.
 class FeedController extends AsyncNotifier<FeedState> {
+  FeedController(this.occasion);
+
+  /// `Occasions` id, or null for the full feed.
+  final String? occasion;
+
+  /// An occasion feed reads ahead until it has this many fits (or the end).
+  static const _wanted = 8;
+
+  /// …but stops after this many pages per read, to stay quick.
+  static const _maxPages = 6;
+
   @override
   Future<FeedState> build() async {
-    final page = await ref.watch(feedRepositoryProvider).page();
-    return FeedState(items: page.items, nextCursor: page.nextCursor);
+    final o = Occasions.byId(occasion);
+    if (o == null) {
+      final page = await ref.watch(feedRepositoryProvider).page();
+      return FeedState(items: page.items, nextCursor: page.nextCursor);
+    }
+    final (items, next) = await _read(o, null, const {});
+    return FeedState(items: items, nextCursor: next);
+  }
+
+  /// Reads pages from [cursor], keeping fits that suit [o].
+  Future<(List<Outfit>, String?)> _read(
+    Occasion o,
+    String? cursor,
+    Set<String> seen,
+  ) async {
+    final repo = ref.read(feedRepositoryProvider);
+    final out = <Outfit>[];
+    var next = cursor;
+    for (var i = 0; i < _maxPages; i++) {
+      final page = await repo.page(cursor: next);
+      for (final fit in page.items) {
+        if (o.suits(fit) && !seen.contains(fit.id)) out.add(fit);
+      }
+      next = page.nextCursor;
+      if (next == null || out.length >= _wanted) break;
+    }
+    return (out, next);
   }
 
   /// Fetches the next page (no-op while one is loading or at the end).
@@ -48,19 +86,28 @@ class FeedController extends AsyncNotifier<FeedState> {
     if (s == null || !s.hasMore || s.loadingMore) return;
     state = AsyncData(s.copyWith(loadingMore: true, loadMoreFailed: false));
     try {
-      final page = await ref
-          .read(feedRepositoryProvider)
-          .page(cursor: s.nextCursor);
-      if (!ref.mounted) return;
       final seen = {for (final o in s.items) o.id};
+      final o = Occasions.byId(occasion);
+      final List<Outfit> fresh;
+      final String? next;
+      if (o == null) {
+        final page = await ref
+            .read(feedRepositoryProvider)
+            .page(cursor: s.nextCursor);
+        fresh = page.items;
+        next = page.nextCursor;
+      } else {
+        (fresh, next) = await _read(o, s.nextCursor, seen);
+      }
+      if (!ref.mounted) return;
       state = AsyncData(
         s.copyWith(
           items: [
             ...s.items,
-            for (final o in page.items)
-              if (!seen.contains(o.id)) o,
+            for (final f in fresh)
+              if (!seen.contains(f.id)) f,
           ],
-          nextCursor: () => page.nextCursor,
+          nextCursor: () => next,
           loadingMore: false,
         ),
       );
@@ -81,9 +128,14 @@ class FeedController extends AsyncNotifier<FeedState> {
   }
 }
 
-final feedProvider = AsyncNotifierProvider<FeedController, FeedState>(
-  FeedController.new,
-);
+/// The Scroll's feed: `null` for everything, or an occasion id.
+final scrollFeedProvider =
+    AsyncNotifierProvider.family<FeedController, FeedState, String?>(
+      FeedController.new,
+    );
+
+/// The full ranked feed (Home, the Scroll tab).
+final feedProvider = scrollFeedProvider(null);
 
 /// A fit already loaded in the feed, if it's there.
 final feedOutfitProvider = Provider.family<Outfit?, String>((ref, id) {

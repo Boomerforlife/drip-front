@@ -59,15 +59,13 @@ class ApiStudioRepository implements StudioRepository {
     String category, {
     bool fromWardrobe = false,
   }) async {
-    final json =
-        await _api.get(
-              '/studio/pieces',
-              query: {
-                'slot': StudioSlots.slot(category),
-                'source': fromWardrobe ? 'wardrobe' : 'catalog',
-              },
-            )
-            as Map;
+    final json = await _api.get(
+      '/studio/pieces',
+      query: {
+        'slot': StudioSlots.slot(category),
+        'source': fromWardrobe ? 'wardrobe' : 'catalog',
+      },
+    ) as Map;
     return [
       for (final p in (json['pieces'] as List?) ?? const [])
         if (p is Map) StudioPiece.fromJson(p.cast<String, dynamic>()),
@@ -98,7 +96,15 @@ class ApiStudioRepository implements StudioRepository {
     final json = id == null
         ? await _api.post('/studio/fits', body)
         : await _api.put('/studio/fits/$id', body);
-    return UserFit.fromJson((json as Map).cast<String, dynamic>());
+    if (json is Map) return UserFit.fromJson(json.cast<String, dynamic>());
+    // Saved, but the reply carried no fit: read it back (newest first).
+    final list = await _api.get('/studio/fits') as Map;
+    final fits = [
+      for (final f in (list['fits'] as List?) ?? const [])
+        if (f is Map) UserFit.fromJson(f.cast<String, dynamic>()),
+    ];
+    if (fits.isEmpty) throw const ApiException(500, 'The fit was not saved');
+    return id == null ? fits.first : fits.firstWhere((f) => f.id == id);
   }
 
   @override
@@ -110,13 +116,11 @@ class ApiStudioRepository implements StudioRepository {
     String? sceneId,
     ShootMode mode = ShootMode.ai,
   }) async {
-    final json =
-        await _api.post('/gen', {
-              'fitId': fitId,
-              'sceneId': ?sceneId,
-              'mode': mode.name,
-            })
-            as Map;
+    final json = await _api.post('/gen', {
+      'fitId': fitId,
+      'sceneId': ?sceneId,
+      'mode': mode.name,
+    }) as Map;
     return GenJob(
       id: json['jobId'] as String,
       fitId: fitId,
@@ -125,8 +129,9 @@ class ApiStudioRepository implements StudioRepository {
   }
 
   @override
-  Future<GenJob> genJob(String id) async =>
-      GenJob.fromJson((await _api.get('/gen/$id') as Map).cast<String, dynamic>());
+  Future<GenJob> genJob(String id) async => GenJob.fromJson(
+    (await _api.get('/gen/$id') as Map).cast<String, dynamic>(),
+  );
 }
 
 /// Fixture Studio for tests.

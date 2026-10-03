@@ -41,9 +41,13 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
         }) => Tap(
               onTap: () {
                 Navigator.of(ctx).pop();
-                route == null
-                    ? showAfterBeta(context, label)
-                    : context.push(route);
+                if (route == null) {
+                  showAfterBeta(context, label);
+                } else if (route == '/studio') {
+                  context.go(route); // a tab now
+                } else {
+                  context.push(route);
+                }
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 14),

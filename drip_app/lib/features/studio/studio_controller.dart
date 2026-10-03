@@ -273,18 +273,22 @@ class StudioController extends Notifier<StudioState> {
     fromWardrobe: state.fromWardrobe,
   );
 
-  /// Opens a fit saved earlier, so saving again updates it in place. Where
-  /// the pieces were placed, and any extra accessories, come from this device.
+  /// Opens a fit saved earlier, so saving again updates it in place.
   void load(UserFit fit) {
     final store = ref.read(localStoreProvider);
     final worn = wornForFit(fit, store);
     state = StudioState(
       category: _start,
       worn: worn,
-      placed: savedPlacement(store.studioPositions(fit.id))
+      placed: placementForFit(fit, store)
         ..removeWhere((k, _) => !worn.containsKey(k)),
-      stack: worn.keys.toList(),
-      fromWardrobe: fit.pieces.values.any((p) => p.fromWardrobe),
+      stack: [
+        for (final k in fit.stack)
+          if (worn.containsKey(k)) k,
+        for (final k in worn.keys)
+          if (!fit.stack.contains(k)) k,
+      ],
+      fromWardrobe: worn.values.any((p) => p.fromWardrobe),
       saved: fit,
     );
   }
@@ -297,58 +301,41 @@ class StudioController extends Notifier<StudioState> {
   );
 
   /// Saves the canvas as a private user fit (creates it, or replaces the one
-  /// saved earlier in this session). The server returns the drip rate; where
-  /// the pieces sit is kept on this device (the API stores only which).
+  /// saved earlier in this session): every piece, where it sits and which is
+  /// on top. The server returns the drip rate.
   Future<UserFit> save({String? name}) async {
-    // The API keeps one accessory per fit; the rest stay on this device until
-    // it takes more (see the backend notes).
-    final accessories = state.worn.keys.where(isAccessoryKey).toList()..sort();
-    final extras = accessories.skip(1).toSet();
-    final first = accessories.isEmpty ? null : accessories.first;
-    final toServer = {
-      for (final e in state.worn.entries)
-        if (!extras.contains(e.key))
-          (e.key == first ? 'ACCESSORIES' : e.key): e.value,
-    };
     final fit = await ref
         .read(studioRepositoryProvider)
-        .saveFit(id: state.saved?.id, name: name, worn: toServer);
-    final store = ref.read(localStoreProvider);
-    await store.setStudioPositions(fit.id, {
-      for (final e in state.placed.entries)
-        // The accessory the server keeps comes back as `ACCESSORIES`.
-        (e.key == first ? 'ACCESSORIES' : e.key): [
-          e.value.left,
-          e.value.top,
-          e.value.width,
-          e.value.height,
-        ],
-    });
-    await store.setStudioExtras(fit.id, {
-      for (final k in extras) k: _pieceJson(state.worn[k]!),
-    });
+        .saveFit(
+          id: state.saved?.id,
+          name: name,
+          worn: state.worn,
+          placed: state.placed,
+          stack: state.stack,
+        );
+    // The server has all of it now: drop what older builds kept here.
+    await ref.read(localStoreProvider).forgetStudioFit(fit.id);
     if (ref.mounted) state = state.copyWith(saved: fit, dirty: false);
     ref.invalidate(libraryProvider);
     return fit;
   }
 }
 
-Map<String, dynamic> _pieceJson(StudioPiece p) => {
-  'id': p.id,
-  'name': p.name,
-  'category': 'accessory',
-  'image': p.image,
-  'price': {'amount': p.price, 'currency': 'INR'},
-  'source': p.source,
+/// A saved fit's pieces by canvas key. Fits saved before the API kept every
+/// accessory may have extras on this device; they're read until the fit is
+/// saved again.
+Map<String, StudioPiece> wornForFit(UserFit fit, LocalStore store) => {
+  ...fit.pieces,
+  for (final e in (store.studioExtras(fit.id) ?? const {}).entries)
+    if (!fit.pieces.containsKey(e.key)) e.key: StudioPiece.fromJson(e.value),
 };
 
-/// A saved fit's pieces by canvas key: the server's, plus extra accessories
-/// kept on this device.
-Map<String, StudioPiece> wornForFit(UserFit fit, LocalStore store) => {
-  for (final e in fit.pieces.entries) StudioSlots.label(e.key): e.value,
-  for (final e in (store.studioExtras(fit.id) ?? const {}).entries)
-    e.key: StudioPiece.fromJson(e.value),
-};
+/// Where a saved fit's pieces sit: the server's boxes, or for a fit saved
+/// before it kept them, the ones stored on this device.
+Map<String, Rect> placementForFit(UserFit fit, LocalStore store) =>
+    fit.boxes.isNotEmpty
+    ? {...fit.boxes}
+    : savedPlacement(store.studioPositions(fit.id));
 
 /// Stored `[x, y, w, h]` lists → boxes.
 Map<String, Rect> savedPlacement(Map<String, List<double>>? raw) => {

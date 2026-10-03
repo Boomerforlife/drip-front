@@ -284,9 +284,8 @@ class _FitCard extends StatelessWidget {
             Consumer(
               builder: (context, ref, _) => FitCanvas(
                 worn: wornForFit(fit, ref.read(localStoreProvider)),
-                placed: savedPlacement(
-                  ref.read(localStoreProvider).studioPositions(fit.id),
-                ),
+                placed: placementForFit(fit, ref.read(localStoreProvider)),
+                stack: fit.stack,
                 compact: true,
                 radius: 14,
               ),

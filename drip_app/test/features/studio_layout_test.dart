@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:ui' show Rect;
 
+import 'package:drip/data/models/studio.dart';
 import 'package:drip/data/models/stylist.dart';
 import 'package:drip/data/providers.dart';
 import 'package:drip/features/studio/studio_controller.dart';
@@ -203,36 +205,83 @@ void main() {
       expect(r.height, closeTo(0.4, 1e-9));
     });
 
-    test(
-      'several accessories can be worn; save keeps the extras here',
-      () async {
-        final s = c.read(studioProvider.notifier)..setCategory('ACCESSORIES');
-        s
-          ..select(_p('a1', 'ACCESSORIES', 'Canvas tote bag'))
-          ..select(_p('a2', 'ACCESSORIES', 'Oval sunglasses'))
-          ..select(_p('a3', 'ACCESSORIES', 'Silver chain'));
-        final keys = c.read(studioProvider).worn.keys.where(isAccessoryKey);
-        expect(keys.length, 3);
-        final plan = FitLayouts.plan(c.read(studioProvider).worn);
-        expect({
-          for (final k in keys) plan.placed[k]?.slot,
-        }, containsAll(['bag', 'eyewear', 'jewellery']));
-        // Tapping a worn accessory takes just that one off.
-        s.select(_p('a2', 'ACCESSORIES', 'Oval sunglasses'));
-        expect(
-          c.read(studioProvider).worn.keys.where(isAccessoryKey).length,
-          2,
-        );
+    test('several accessories can be worn, and all of them save', () async {
+      final s = c.read(studioProvider.notifier)..setCategory('ACCESSORIES');
+      s
+        ..select(_p('a1', 'ACCESSORIES', 'Canvas tote bag'))
+        ..select(_p('a2', 'ACCESSORIES', 'Oval sunglasses'))
+        ..select(_p('a3', 'ACCESSORIES', 'Silver chain'));
+      final keys = c.read(studioProvider).worn.keys.where(isAccessoryKey);
+      expect(keys.length, 3);
+      final plan = FitLayouts.plan(c.read(studioProvider).worn);
+      expect({
+        for (final k in keys) plan.placed[k]?.slot,
+      }, containsAll(['bag', 'eyewear', 'jewellery']));
+      // Tapping a worn accessory takes just that one off.
+      s.select(_p('a2', 'ACCESSORIES', 'Oval sunglasses'));
+      expect(c.read(studioProvider).worn.keys.where(isAccessoryKey).length, 2);
 
-        final fit = await s.save(name: 'Extras');
-        s.reset();
-        s.load(fit);
-        final ids = {
-          for (final e in c.read(studioProvider).worn.entries)
-            if (isAccessoryKey(e.key)) e.value.id,
-        };
-        expect(ids, {'a1', 'a3'});
-      },
-    );
+      final fit = await s.save(name: 'Extras');
+      s.reset();
+      s.load(fit);
+      final ids = {
+        for (final e in c.read(studioProvider).worn.entries)
+          if (isAccessoryKey(e.key)) e.value.id,
+      };
+      expect(ids, {'a1', 'a3'});
+    });
+
+    test('saving keeps nothing on the phone', () async {
+      final s = c.read(studioProvider.notifier)
+        ..setCategory('ACCESSORIES')
+        ..select(_p('a1', 'ACCESSORIES', 'Canvas tote bag'))
+        ..select(_p('a2', 'ACCESSORIES', 'Oval sunglasses'));
+      s
+        ..beginMove('ACCESSORIES:2')
+        ..move('ACCESSORIES:2', const Rect.fromLTWH(0.5, 0.5, 0.2, 0.2));
+      await s.save(name: 'Server only');
+      final sp = await SharedPreferences.getInstance();
+      expect(sp.getKeys().where((k) => k.startsWith('studio.')), isEmpty);
+    });
+
+    test('a fit saved by an older build reads its extras and boxes from the '
+        'phone, until it is saved again', () async {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(
+        'studio.extras.old',
+        jsonEncode({
+          'ACCESSORIES:2': {
+            'id': 'a2',
+            'name': 'Oval sunglasses',
+            'category': 'accessory',
+            'image': 'x.png',
+            'source': 'catalog',
+          },
+        }),
+      );
+      await sp.setString(
+        'studio.positions.old',
+        jsonEncode({
+          'TOPS': [0.1, 0.2, 0.3, 0.4],
+        }),
+      );
+      final old = UserFit(
+        id: 'old',
+        name: 'Old',
+        pieces: {
+          'TOPS': _p('t', 'TOPS'),
+          'ACCESSORIES': _p('a1', 'ACCESSORIES', 'Canvas tote bag'),
+        },
+      );
+      final s = c.read(studioProvider.notifier)..load(old);
+      final state = c.read(studioProvider);
+      expect(state.worn.keys, containsAll(['ACCESSORIES', 'ACCESSORIES:2']));
+      expect(state.placed['TOPS']!.left, closeTo(0.1, 1e-9));
+
+      final saved = await s.save();
+      expect(saved.pieces.keys, contains('ACCESSORIES:2'));
+      expect(saved.boxes['TOPS']!.top, closeTo(0.2, 1e-9));
+      expect(sp.getKeys().where((k) => k.startsWith('studio.')), isEmpty);
+    });
   });
 }

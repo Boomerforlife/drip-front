@@ -1,3 +1,5 @@
+import 'dart:ui' show Rect;
+
 import 'outfit.dart';
 import 'stylist.dart';
 
@@ -42,6 +44,8 @@ class UserFit {
     required this.id,
     required this.name,
     required this.pieces,
+    this.boxes = const {},
+    this.stack = const [],
     this.baseFitId,
     this.dripRate,
     this.price,
@@ -52,27 +56,59 @@ class UserFit {
   final String name;
   final String? baseFitId;
 
-  /// Keyed by API slot (`top`, `outer`…).
+  /// Keyed by canvas key (TOPS, ACCESSORIES, ACCESSORIES:2…; see
+  /// [StudioSlots.canvasKey]).
   final Map<String, StudioPiece> pieces;
+
+  /// Where the user placed pieces (fractions of the canvas), by canvas key.
+  /// Pieces without one sit where the layout puts them.
+  final Map<String, Rect> boxes;
+
+  /// Canvas keys back to front (the server's `z`).
+  final List<String> stack;
 
   /// 0–100, null until the fit has at least two pieces.
   final int? dripRate;
   final int? price;
   final DateTime? updatedAt;
 
-  factory UserFit.fromJson(Map<String, dynamic> json) => UserFit(
-    id: json['id'] as String,
-    name: json['name'] as String? ?? 'Studio fit',
-    baseFitId: json['baseFitId'] as String?,
-    pieces: {
-      for (final p in (json['pieces'] as List?) ?? const [])
-        if (p is Map)
-          '${p['slot']}': StudioPiece.fromJson(p.cast<String, dynamic>()),
-    },
-    dripRate: (json['dripRate'] as num?)?.round(),
-    price: moneyAmount(json['price']),
-    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
-  );
+  factory UserFit.fromJson(Map<String, dynamic> json) {
+    final pieces = <String, StudioPiece>{};
+    final boxes = <String, Rect>{};
+    final z = <String, int>{};
+    for (final p in (json['pieces'] as List?) ?? const []) {
+      if (p is! Map) continue;
+      final key = StudioSlots.canvasKey(
+        '${p['slot']}',
+        (p['position'] as num?)?.toInt() ?? 0,
+      );
+      pieces[key] = StudioPiece.fromJson(p.cast<String, dynamic>());
+      final box = p['box'];
+      if (box is Map) {
+        double v(String k) => (box[k] as num?)?.toDouble() ?? 0;
+        boxes[key] = Rect.fromLTWH(v('x'), v('y'), v('w'), v('h'));
+      }
+      if (p['z'] is num) z[key] = (p['z'] as num).toInt();
+    }
+    // Pieces without a z keep the server's order, under the ones with one.
+    final order = pieces.keys.toList();
+    final stack = [...order]
+      ..sort((a, b) {
+        final byZ = (z[a] ?? -1).compareTo(z[b] ?? -1);
+        return byZ != 0 ? byZ : order.indexOf(a).compareTo(order.indexOf(b));
+      });
+    return UserFit(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? 'Studio fit',
+      baseFitId: json['baseFitId'] as String?,
+      pieces: pieces,
+      boxes: boxes,
+      stack: stack,
+      dripRate: (json['dripRate'] as num?)?.round(),
+      price: moneyAmount(json['price']),
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+    );
+  }
 }
 
 /// The user's own space (`GET /studio`): saved and liked fits, finished Gen

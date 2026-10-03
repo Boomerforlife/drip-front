@@ -60,7 +60,9 @@ class FeedController extends AsyncNotifier<FeedState> {
     return FeedState(items: items, nextCursor: next);
   }
 
-  /// Reads pages from [cursor], keeping fits that suit [o].
+  /// Reads pages from [cursor], keeping fits that suit [o]. The API filters
+  /// by occasion already, so its first page is usually enough; the check and
+  /// the read-ahead cover a feed that doesn't (the fixtures).
   Future<(List<Outfit>, String?)> _read(
     Occasion o,
     String? cursor,
@@ -70,7 +72,7 @@ class FeedController extends AsyncNotifier<FeedState> {
     final out = <Outfit>[];
     var next = cursor;
     for (var i = 0; i < _maxPages; i++) {
-      final page = await repo.page(cursor: next);
+      final page = await repo.page(cursor: next, occasion: o.id);
       for (final fit in page.items) {
         if (o.suits(fit) && !seen.contains(fit.id)) out.add(fit);
       }

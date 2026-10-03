@@ -1,3 +1,5 @@
+import 'dart:ui' show Rect;
+
 import '../api/api_client.dart';
 import '../mock/mock_content.dart';
 import '../models/stylist.dart';
@@ -12,11 +14,15 @@ abstract interface class StudioRepository {
   });
 
   /// Creates ([id] null) or replaces a user fit. The server scores it.
+  /// [worn] is keyed by canvas key; [placed] holds the pieces the user moved
+  /// (fractions of the canvas) and [stack] the drawing order, back to front.
   Future<UserFit> saveFit({
     String? id,
     String? name,
     String? baseFitId,
     required Map<String, StudioPiece> worn,
+    Map<String, Rect> placed = const {},
+    List<String> stack = const [],
   });
 
   Future<void> deleteFit(String id);
@@ -78,6 +84,8 @@ class ApiStudioRepository implements StudioRepository {
     String? name,
     String? baseFitId,
     required Map<String, StudioPiece> worn,
+    Map<String, Rect> placed = const {},
+    List<String> stack = const [],
   }) async {
     final body = {
       'name': ?name,
@@ -90,6 +98,10 @@ class ApiStudioRepository implements StudioRepository {
               'wardrobeItemId': e.value.id
             else
               'garmentId': e.value.id,
+            if (StudioSlots.slot(e.key) == 'accessory')
+              'position': StudioSlots.position(e.key),
+            'box': ?_box(placed[e.key]),
+            if (stack.contains(e.key)) 'z': stack.indexOf(e.key),
           },
       ],
     };
@@ -106,6 +118,16 @@ class ApiStudioRepository implements StudioRepository {
     if (fits.isEmpty) throw const ApiException(500, 'The fit was not saved');
     return id == null ? fits.first : fits.firstWhere((f) => f.id == id);
   }
+
+  /// The API's `{x, y, w, h}`, kept inside the ranges it accepts.
+  static Map<String, double>? _box(Rect? r) => r == null
+      ? null
+      : {
+          'x': r.left.clamp(-1, 2).toDouble(),
+          'y': r.top.clamp(-1, 2).toDouble(),
+          'w': r.width.clamp(0.01, 1.5).toDouble(),
+          'h': r.height.clamp(0.01, 1.5).toDouble(),
+        };
 
   @override
   Future<void> deleteFit(String id) => _api.delete('/studio/fits/$id');
@@ -153,6 +175,8 @@ class MockStudioRepository implements StudioRepository {
     String? name,
     String? baseFitId,
     required Map<String, StudioPiece> worn,
+    Map<String, Rect> placed = const {},
+    List<String> stack = const [],
   }) async {
     // Stable pseudo-score derived from the piece ids.
     final seed = worn.values.fold<int>(
@@ -163,7 +187,12 @@ class MockStudioRepository implements StudioRepository {
       id: id ?? 'uf_${DateTime.now().microsecondsSinceEpoch}',
       name: name ?? 'Studio fit',
       baseFitId: baseFitId,
-      pieces: {for (final e in worn.entries) StudioSlots.slot(e.key): e.value},
+      pieces: {...worn},
+      boxes: {...placed},
+      stack: [
+        for (final k in stack)
+          if (worn.containsKey(k)) k,
+      ],
       dripRate: worn.length < 2 ? null : 84 + seed % 15,
       price: worn.values.fold<int>(0, (s, p) => s + p.price),
     );

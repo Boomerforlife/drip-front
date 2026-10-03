@@ -29,8 +29,9 @@ class LocalStore {
   bool get prefsPending => _prefs.getBool(_prefsPending) ?? false;
   Future<void> setPrefsPending(bool v) => _prefs.setBool(_prefsPending, v);
 
-  /// Where the user placed each piece on a saved Studio fit (the API keeps
-  /// only which pieces, not where). Studio category → [x, y, w, h] fractions.
+  /// Where the user placed each piece on a Studio fit saved by an older build,
+  /// before the API kept placement. Canvas key → [x, y, w, h] fractions.
+  /// Read until the fit is saved again (see [forgetStudioFit]).
   Map<String, List<double>>? studioPositions(String fitId) {
     final raw = _prefs.getString('studio.positions.$fitId');
     if (raw == null) return null;
@@ -45,15 +46,8 @@ class LocalStore {
     }
   }
 
-  Future<void> setStudioPositions(
-    String fitId,
-    Map<String, List<double>> positions,
-  ) => positions.isEmpty
-      ? _prefs.remove('studio.positions.$fitId')
-      : _prefs.setString('studio.positions.$fitId', jsonEncode(positions));
-
-  /// Extra accessories on a saved Studio fit beyond the one the API keeps:
-  /// canvas key → piece JSON (`StudioPiece.fromJson` shape).
+  /// Extra accessories on a Studio fit saved by an older build, which sent
+  /// the API only one: canvas key → piece JSON (`StudioPiece.fromJson`).
   Map<String, Map<String, dynamic>>? studioExtras(String fitId) {
     final raw = _prefs.getString('studio.extras.$fitId');
     if (raw == null) return null;
@@ -67,12 +61,11 @@ class LocalStore {
     }
   }
 
-  Future<void> setStudioExtras(
-    String fitId,
-    Map<String, Map<String, dynamic>> extras,
-  ) => extras.isEmpty
-      ? _prefs.remove('studio.extras.$fitId')
-      : _prefs.setString('studio.extras.$fitId', jsonEncode(extras));
+  /// Drops what an older build kept for a Studio fit, once the server has it.
+  Future<void> forgetStudioFit(String fitId) async {
+    await _prefs.remove('studio.positions.$fitId');
+    await _prefs.remove('studio.extras.$fitId');
+  }
 
   /// Wardrobe items marked "in rotation" (no backend field for this yet).
   Set<String> get rotation => _prefs.getStringList(_rotation)?.toSet() ?? {};

@@ -12,7 +12,9 @@ class FeedPage {
 
 /// The Fashion Scroll (and Home's fresh fits): ranked, not-seen `Outfit`s.
 abstract interface class FeedRepository {
-  Future<FeedPage> page({String? cursor});
+  /// One page, from [cursor]. With an [occasion] (a `/meta` id) the server
+  /// keeps only fits inside its formality band; the mock doesn't filter.
+  Future<FeedPage> page({String? cursor, String? occasion});
 
   /// `open | skip | like | unlike | save`, with how long the card was on
   /// screen. Trains the ranking; failures are ignored by callers.
@@ -24,9 +26,11 @@ class ApiFeedRepository implements FeedRepository {
   final ApiClient _api;
 
   @override
-  Future<FeedPage> page({String? cursor}) async {
-    final json =
-        await _api.get('/scroll', query: {'cursor': ?cursor}) as Map;
+  Future<FeedPage> page({String? cursor, String? occasion}) async {
+    final json = await _api.get(
+      '/scroll',
+      query: {'cursor': ?cursor, 'occasion': ?occasion},
+    ) as Map;
     return FeedPage(
       items: [
         for (final o in (json['items'] as List?) ?? const [])
@@ -54,7 +58,7 @@ class MockFeedRepository implements FeedRepository {
   final signals = <(String, String)>[];
 
   @override
-  Future<FeedPage> page({String? cursor}) async {
+  Future<FeedPage> page({String? cursor, String? occasion}) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     final start = int.tryParse(cursor ?? '0') ?? 0;
     final end = (start + pageSize).clamp(0, _outfits.length);

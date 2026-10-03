@@ -522,9 +522,14 @@ class _PieceTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppText.manrope(10, weight: FontWeight.w600),
             ),
-            if (piece.price > 0)
+            if (piece.price > 0 || piece.brand != null)
               Text(
-                formatPrice(piece.price),
+                [
+                  ?piece.brand,
+                  if (piece.price > 0) formatPrice(piece.price),
+                ].join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: AppText.mono(9, color: AppColors.muted),
               ),
           ],

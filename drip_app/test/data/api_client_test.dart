@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show Rect;
 
 import 'package:drip/data/api/api_client.dart';
+import 'package:drip/data/models/stylist.dart';
+import 'package:drip/data/repositories/studio_repository.dart';
 import 'package:drip/data/repositories/feed_repository.dart';
 import 'package:drip/data/repositories/stylist_repository.dart';
 import 'package:drip/data/repositories/wardrobe_repository.dart';
@@ -26,11 +29,8 @@ void main() {
   late FakeAuthRepository auth;
   setUp(() => auth = FakeAuthRepository(signedIn: true));
 
-  ApiClient client(MockClientHandler handler) => ApiClient(
-    baseUrl: _base,
-    auth: auth,
-    client: MockClient(handler),
-  );
+  ApiClient client(MockClientHandler handler) =>
+      ApiClient(baseUrl: _base, auth: auth, client: MockClient(handler));
 
   group('ApiClient', () {
     test('sends the bearer token, but not to /meta', () async {
@@ -90,7 +90,11 @@ void main() {
         throwsA(
           isA<ApiException>()
               .having((e) => e.isRateLimited, 'rate limited', isTrue)
-              .having((e) => e.retryAfter, 'retryAfter', const Duration(seconds: 60)),
+              .having(
+                (e) => e.retryAfter,
+                'retryAfter',
+                const Duration(seconds: 60),
+              ),
         ),
       );
     });
@@ -126,28 +130,31 @@ void main() {
       );
     });
 
-    test('uploads PUT raw bytes to the signed URL with its content type', () async {
-      late http.Request put;
-      final api = ApiClient(
-        baseUrl: _base,
-        auth: auth,
-        uploadHeaders: const {'apikey': 'pub'},
-        client: MockClient((req) async {
-          put = req;
-          return http.Response('{}', 200);
-        }),
-      );
-      await api.upload(
-        'https://storage.test/upload/sign/x.jpg?token=t',
-        Uint8List.fromList([1, 2, 3]),
-        contentType: 'image/jpeg',
-      );
-      expect(put.method, 'PUT');
-      expect(put.headers['Content-Type'], startsWith('image/jpeg'));
-      expect(put.headers['apikey'], 'pub');
-      expect(put.headers.containsKey('Authorization'), isFalse);
-      expect(put.bodyBytes, [1, 2, 3]);
-    });
+    test(
+      'uploads PUT raw bytes to the signed URL with its content type',
+      () async {
+        late http.Request put;
+        final api = ApiClient(
+          baseUrl: _base,
+          auth: auth,
+          uploadHeaders: const {'apikey': 'pub'},
+          client: MockClient((req) async {
+            put = req;
+            return http.Response('{}', 200);
+          }),
+        );
+        await api.upload(
+          'https://storage.test/upload/sign/x.jpg?token=t',
+          Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+        expect(put.method, 'PUT');
+        expect(put.headers['Content-Type'], startsWith('image/jpeg'));
+        expect(put.headers['apikey'], 'pub');
+        expect(put.headers.containsKey('Authorization'), isFalse);
+        expect(put.bodyBytes, [1, 2, 3]);
+      },
+    );
   });
 
   group('API repositories', () {
@@ -196,41 +203,133 @@ void main() {
       expect(o.tags, containsAll(['relaxed', 'summer']));
     });
 
-    test('Taylor picks a fit, then the app fetches it for the result', () async {
+    test('an occasion feed asks the server to filter', () async {
       final api = client((req) async {
-        if (req.url.path == '/taylor') {
-          expect(jsonDecode(req.body), {
-            'occasion': 'Date Night',
-            'vibe': 'Y2K Goth',
-            'restrictToWardrobe': false,
-          });
-          return _json({
-            'fit_id': 'f9',
-            'reason': 'Dark layers for a late dinner.',
-            'alternatives': ['f2'],
-          });
-        }
-        return _json({
-          'id': 'f9',
-          'kind': 'photo',
-          'image': 'https://cdn.test/f9.jpg',
-          'dripRate': 91,
-          'price': null,
-          'pieces': [],
-          'hotspots': [],
-        });
+        expect(req.url.queryParameters['occasion'], 'wedding');
+        return _json({'items': [], 'nextCursor': null});
       });
-      final b = await ApiStylistRepository(api).generateBlueprint(
-        occasion: 'Date Night',
-        vibe: 'Y2K Goth',
-        restrictToWardrobe: false,
-        wardrobe: const [],
-      );
-      expect(b.fitId, 'f9');
-      expect(b.reasoning, 'Dark layers for a late dinner.');
-      expect(b.drip, 91);
-      expect(b.alternatives, ['f2']);
+      final page = await ApiFeedRepository(api).page(occasion: 'wedding');
+      expect(page.items, isEmpty);
     });
+
+    test('a Studio fit saves every accessory with its box and draw order, '
+        'and reads them back by canvas key', () async {
+      const top = '11111111-1111-4111-8111-111111111111';
+      const bag = '22222222-2222-4222-8222-222222222222';
+      const watch = '33333333-3333-4333-8333-333333333333';
+      late Map<String, dynamic> sent;
+      final api = client((req) async {
+        sent = (jsonDecode(req.body) as Map).cast<String, dynamic>();
+        return _json({
+          'id': 'uf1',
+          'name': 'Beach',
+          'pieces': [
+            for (final i in sent['items'] as List)
+              {
+                'id': i['garmentId'] ?? i['wardrobeItemId'],
+                'source': i['garmentId'] != null ? 'catalog' : 'wardrobe',
+                'name': 'piece',
+                'brand': i['garmentId'] != null ? 'Snitch' : null,
+                'category': i['slot'],
+                'image': 'https://cdn.test/p.png',
+                'price': null,
+                'slot': i['slot'],
+                'position': i['position'] ?? 0,
+                'box': i['box'],
+                'z': i['z'],
+              },
+          ],
+          'dripRate': 88,
+          'price': null,
+          'updatedAt': '2026-10-03T10:00:00Z',
+        }, 201);
+      });
+      StudioPiece piece(String id, String category, [String? source]) =>
+          StudioPiece(
+            id: id,
+            name: id,
+            category: category,
+            image: '',
+            source: source ?? 'catalog',
+          );
+      final fit = await ApiStudioRepository(api).saveFit(
+        name: 'Beach',
+        worn: {
+          'TOPS': piece(top, 'TOPS'),
+          'ACCESSORIES': piece(bag, 'ACCESSORIES'),
+          'ACCESSORIES:3': piece(watch, 'ACCESSORIES', 'wardrobe'),
+        },
+        placed: {'ACCESSORIES:3': const Rect.fromLTWH(0.7, 0.1, 0.2, 0.15)},
+        stack: const ['TOPS', 'ACCESSORIES:3', 'ACCESSORIES'],
+      );
+
+      final items = (sent['items'] as List).cast<Map>();
+      expect(items[0], {'slot': 'top', 'garmentId': top, 'z': 0});
+      expect(items[1], {
+        'slot': 'accessory',
+        'garmentId': bag,
+        'position': 0,
+        'z': 2,
+      });
+      expect(items[2], {
+        'slot': 'accessory',
+        'wardrobeItemId': watch,
+        'position': 2,
+        'box': {
+          'x': closeTo(0.7, 1e-9),
+          'y': closeTo(0.1, 1e-9),
+          'w': closeTo(0.2, 1e-9),
+          'h': closeTo(0.15, 1e-9),
+        },
+        'z': 1,
+      });
+
+      expect(fit.pieces.keys, ['TOPS', 'ACCESSORIES', 'ACCESSORIES:3']);
+      expect(fit.pieces['TOPS']!.brand, 'Snitch');
+      expect(fit.pieces['ACCESSORIES:3']!.brand, isNull);
+      expect(fit.boxes.keys, ['ACCESSORIES:3']);
+      expect(fit.boxes['ACCESSORIES:3']!.width, closeTo(0.2, 1e-9));
+      expect(fit.stack, ['TOPS', 'ACCESSORIES:3', 'ACCESSORIES']);
+    });
+
+    test(
+      'Taylor picks a fit, then the app fetches it for the result',
+      () async {
+        final api = client((req) async {
+          if (req.url.path == '/taylor') {
+            expect(jsonDecode(req.body), {
+              'occasion': 'Date Night',
+              'vibe': 'Y2K Goth',
+              'restrictToWardrobe': false,
+            });
+            return _json({
+              'fit_id': 'f9',
+              'reason': 'Dark layers for a late dinner.',
+              'alternatives': ['f2'],
+            });
+          }
+          return _json({
+            'id': 'f9',
+            'kind': 'photo',
+            'image': 'https://cdn.test/f9.jpg',
+            'dripRate': 91,
+            'price': null,
+            'pieces': [],
+            'hotspots': [],
+          });
+        });
+        final b = await ApiStylistRepository(api).generateBlueprint(
+          occasion: 'Date Night',
+          vibe: 'Y2K Goth',
+          restrictToWardrobe: false,
+          wardrobe: const [],
+        );
+        expect(b.fitId, 'f9');
+        expect(b.reasoning, 'Dark layers for a late dinner.');
+        expect(b.drip, 91);
+        expect(b.alternatives, ['f2']);
+      },
+    );
 
     test("Taylor's 404 means there are no fits yet", () async {
       final api = client(

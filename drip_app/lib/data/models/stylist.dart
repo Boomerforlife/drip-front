@@ -59,9 +59,13 @@ class StudioPiece {
     required this.image,
     this.price = 0,
     this.source = 'catalog',
+    this.brand,
   });
   final String id;
   final String name;
+
+  /// The store it comes from; null for wardrobe pieces.
+  final String? brand;
 
   /// Studio category label (OUTERWEAR, TOPS, BOTTOMS, FOOTWEAR…).
   final String category;
@@ -83,6 +87,7 @@ class StudioPiece {
       image: json['image'] as String? ?? '',
       price: price is Map ? ((price['amount'] as num?)?.round() ?? 0) : 0,
       source: json['source'] as String? ?? 'catalog',
+      brand: json['brand'] as String?,
     );
   }
 }
@@ -108,9 +113,11 @@ abstract final class StudioSlots {
     'ACCESSORIES': 'accessory',
   };
 
-  /// OUTERWEAR → `outer`.
-  static String slot(String category) =>
-      _slotFor[category] ?? category.toLowerCase();
+  /// OUTERWEAR → `outer` (an extra accessory's `ACCESSORIES:2` → `accessory`).
+  static String slot(String category) {
+    final base = category.split(':').first;
+    return _slotFor[base] ?? base.toLowerCase();
+  }
 
   /// `outer` → OUTERWEAR (a studio label passes through unchanged).
   static String label(String slot) {
@@ -118,6 +125,19 @@ abstract final class StudioSlots {
       if (e.value == slot) return e.key;
     }
     return slot.toUpperCase();
+  }
+
+  /// The canvas key for a piece of a user fit: the category, and for
+  /// accessories past the first, `ACCESSORIES:2`… (position 1 → `:2`).
+  static String canvasKey(String slot, int position) {
+    final category = label(slot);
+    return position > 0 ? '$category:${position + 1}' : category;
+  }
+
+  /// An accessory's position (0–5) from its canvas key; 0 for the rest.
+  static int position(String key) {
+    final i = key.indexOf(':');
+    return i < 0 ? 0 : (int.tryParse(key.substring(i + 1)) ?? 1) - 1;
   }
 }
 

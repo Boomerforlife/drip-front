@@ -8,6 +8,8 @@ import 'package:drip/app.dart';
 import 'package:drip/core/widgets/tap.dart';
 import 'package:drip/features/onboarding/onboarding_data.dart';
 import 'package:drip/features/session/session_controller.dart';
+import 'package:drip/features/studio/studio_controller.dart';
+import 'package:drip/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -137,5 +139,56 @@ void main() {
     );
     await _settle(t, ms: 3500);
     await _shot(t, 'home_new');
+    await t.drag(find.byType(CustomScrollView).first, const Offset(0, -900));
+    await _settle(t, ms: 900);
+    await _shot(t, 'home_occasions');
+  });
+
+  testWidgets('studio', (t) async {
+    // ignore: invalid_use_of_visible_for_testing_member
+    SharedPreferences.setMockInitialValues({'session.onboarded': true});
+    final sp = await SharedPreferences.getInstance();
+    t.view.physicalSize = const Size(390, 844) * 2;
+    t.view.devicePixelRatio = 2;
+    addTearDown(t.view.reset);
+    await t.pumpWidget(
+      RepaintBoundary(
+        key: _key,
+        child: ProviderScope(
+          overrides: testOverrides(sp, signedIn: true),
+          retry: (_, _) => null,
+          child: const DripApp(),
+        ),
+      ),
+    );
+    final c = ProviderScope.containerOf(t.element(find.byType(MaterialApp)));
+    await _settle(t, ms: 3000);
+    final router = c.read(routerProvider);
+    router.push('/studio');
+    await _settle(t, ms: 1500);
+    await _shot(t, 'studio_home');
+    await _tap(t, 'START A NEW FIT  →');
+    await _settle(t, ms: 1500);
+    await _shot(t, 'studio_blank');
+    final s = c.read(studioProvider.notifier);
+    s.setCategory('TOPS');
+    final tops = await t.runAsync(
+      () => c.read(studioPiecesProvider(('TOPS', false)).future),
+    );
+    s.select(tops!.first);
+    await _settle(t, ms: 1200);
+    await _shot(t, 'studio_top');
+    s.setCategory('FOOTWEAR');
+    final shoes = await t.runAsync(
+      () => c.read(studioPiecesProvider(('FOOTWEAR', false)).future),
+    );
+    s.select(shoes!.first);
+    s.setCategory('OUTERWEAR');
+    final outer = await t.runAsync(
+      () => c.read(studioPiecesProvider(('OUTERWEAR', false)).future),
+    );
+    s.select(outer!.first);
+    await _settle(t, ms: 1500);
+    await _shot(t, 'studio_three');
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/theme/drip_skin.dart';
@@ -26,6 +28,51 @@ class LocalStore {
   /// Onboarding picks made before sign-in, not yet sent with `PATCH /me`.
   bool get prefsPending => _prefs.getBool(_prefsPending) ?? false;
   Future<void> setPrefsPending(bool v) => _prefs.setBool(_prefsPending, v);
+
+  /// Where the user placed each piece on a saved Studio fit (the API keeps
+  /// only which pieces, not where). Studio category → [x, y, w, h] fractions.
+  Map<String, List<double>>? studioPositions(String fitId) {
+    final raw = _prefs.getString('studio.positions.$fitId');
+    if (raw == null) return null;
+    try {
+      final m = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      return {
+        for (final e in m.entries)
+          e.key: [for (final v in e.value as List) (v as num).toDouble()],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setStudioPositions(
+    String fitId,
+    Map<String, List<double>> positions,
+  ) => positions.isEmpty
+      ? _prefs.remove('studio.positions.$fitId')
+      : _prefs.setString('studio.positions.$fitId', jsonEncode(positions));
+
+  /// Extra accessories on a saved Studio fit beyond the one the API keeps:
+  /// canvas key → piece JSON (`StudioPiece.fromJson` shape).
+  Map<String, Map<String, dynamic>>? studioExtras(String fitId) {
+    final raw = _prefs.getString('studio.extras.$fitId');
+    if (raw == null) return null;
+    try {
+      return {
+        for (final e in (jsonDecode(raw) as Map).entries)
+          '${e.key}': (e.value as Map).cast<String, dynamic>(),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setStudioExtras(
+    String fitId,
+    Map<String, Map<String, dynamic>> extras,
+  ) => extras.isEmpty
+      ? _prefs.remove('studio.extras.$fitId')
+      : _prefs.setString('studio.extras.$fitId', jsonEncode(extras));
 
   /// Wardrobe items marked "in rotation" (no backend field for this yet).
   Set<String> get rotation => _prefs.getStringList(_rotation)?.toSet() ?? {};

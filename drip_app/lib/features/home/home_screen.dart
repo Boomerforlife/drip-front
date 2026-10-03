@@ -9,10 +9,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/contrast.dart';
-import '../../core/utils/format.dart';
 import '../../core/widgets/brand.dart';
 import '../../core/widgets/drip_image.dart';
-import '../../core/widgets/fit_hero.dart';
 import '../../core/widgets/glass.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/skeleton.dart';
@@ -25,6 +23,7 @@ import '../bag/bag_sheet.dart';
 import '../outfits/outfit_controller.dart';
 import '../social/social_controller.dart';
 import 'feed_controller.dart';
+import 'occasions.dart';
 
 /// Home: brand + inbox → stories → today (date, time, pick, Ask Taylor) →
 /// tools → today's drip (into the Scroll) → a staggered wall of fresh fits.
@@ -57,13 +56,6 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
-}
-
-/// Opens a fit in the Fashion Scroll from a card. The image expands into place
-/// (Hero), so the page itself must not slide: direction 0 means "no tab move".
-void _openInScroll(BuildContext context, String id) {
-  TabDirection.value = 0;
-  context.push('/scroll?id=$id');
 }
 
 // ───────────────────────────────────────────────────────────────── header
@@ -137,20 +129,6 @@ class _HomeBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final todaysPick = fits.isEmpty ? null : fits.first;
 
-    final tiles = <_GridItem>[
-      for (final o in fits)
-        _GridItem(
-          key: o.id,
-          image: o.image,
-          title: o.title,
-          handle: o.creatorHandle,
-          score: o.rate,
-          price: o.price,
-          heroId: o.id,
-          onTap: () => _openInScroll(context, o.id),
-        ),
-    ];
-
     final bottom = MediaQuery.paddingOf(context).bottom;
     return RefreshIndicator(
       color: context.palette.accent,
@@ -182,35 +160,14 @@ class _HomeBody extends ConsumerWidget {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 32, 12, 12),
+              padding: const EdgeInsets.fromLTRB(20, 32, 20, 12),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text('FRESH FITS', style: AppText.display(15)),
+                  Text('SHOP BY OCCASION', style: AppText.display(15)),
                   const SizedBox(width: 8),
                   Text(
-                    tiles.length.toString().padLeft(2, '0'),
+                    Occasions.all.length.toString().padLeft(2, '0'),
                     style: AppText.mono(10, color: AppColors.dim),
-                  ),
-                  const Spacer(),
-                  Tap(
-                    onTap: () => showAfterBeta(context, 'Search & Discover'),
-                    semanticLabel: 'Search and discover fits',
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 12,
-                      ),
-                      child: Text(
-                        'SEARCH & DISCOVER  →',
-                        style: AppText.mono(
-                          10,
-                          color: AppColors.muted,
-                          weight: FontWeight.w500,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -219,9 +176,12 @@ class _HomeBody extends ConsumerWidget {
           SliverPadding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, bottom + 16),
             sliver: SliverToBoxAdapter(
-              child: tiles.isEmpty
-                  ? const _NoFitsYet()
-                  : _StaggeredGrid(tiles: tiles),
+              child: _StaggeredGrid(
+                children: [
+                  for (var i = 0; i < Occasions.all.length; i++)
+                    _OccasionCard(occasion: Occasions.all[i], index: i),
+                ],
+              ),
             ),
           ),
         ],
@@ -274,6 +234,7 @@ class _StoryBubble extends StatelessWidget {
 
   final String label;
   final String? avatar;
+
   /// Story rings return with the social layer; none is unseen in v1.
   bool get unseen => false;
   final bool isYou;
@@ -701,11 +662,7 @@ class _Feature {
 }
 
 const _features = [
-  _Feature(
-    '01',
-    Icons.face_retouching_natural_rounded,
-    'Selfie Coordinator',
-  ),
+  _Feature('01', Icons.face_retouching_natural_rounded, 'Selfie Coordinator'),
   _Feature('02', Icons.palette_outlined, 'Colour Theory'),
   _Feature('03', Icons.shopping_bag_outlined, 'Shop List'),
   _Feature('04', Icons.quiz_outlined, 'Style Quiz', soon: true),
@@ -833,10 +790,7 @@ class _FeatureTile extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  feature.index,
-                  style: AppText.mono(10, color: metaColor),
-                ),
+                Text(feature.index, style: AppText.mono(10, color: metaColor)),
                 const Spacer(),
                 Container(
                   width: 30,
@@ -967,38 +921,21 @@ class _DripBar extends StatelessWidget {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────── grid
+// ──────────────────────────────────────────────────────────────── occasions
 
-class _GridItem {
-  const _GridItem({
-    required this.key,
-    required this.image,
-    required this.title,
-    required this.handle,
-    required this.score,
-    required this.price,
-    required this.onTap,
-    this.heroId,
-  });
-
-  final String key;
-  final String image;
-  final String title;
-  final String handle;
-  final int score;
-
-  /// INR total; 0 when unpriced.
-  final int price;
-  final String? heroId;
-  final VoidCallback onTap;
+/// Opens the Scroll on fits that suit [o].
+void _openOccasion(BuildContext context, Occasion o) {
+  Haptics.tick();
+  TabDirection.value = 1;
+  context.push('/scroll?occasion=${o.id}');
 }
 
-/// Two columns whose tiles alternate tall and short, offset from each other,
-/// so the feed reads like a pinned-up wall instead of a spreadsheet. Both
+/// Two columns whose cards alternate tall and short, offset from each other,
+/// so the wall reads like a pinned-up board instead of a spreadsheet. Both
 /// columns carry the same total height (tall + short per pair).
 class _StaggeredGrid extends StatelessWidget {
-  const _StaggeredGrid({required this.tiles});
-  final List<_GridItem> tiles;
+  const _StaggeredGrid({required this.children});
+  final List<Widget> children;
 
   static const _gap = 12.0;
   static const _tall = 1.42; // height ÷ width
@@ -1011,15 +948,12 @@ class _StaggeredGrid extends StatelessWidget {
         final w = (box.maxWidth - _gap) / 2;
         Widget column(int side) {
           final items = <Widget>[];
-          for (var i = side, n = 0; i < tiles.length; i += 2, n++) {
+          for (var i = side, n = 0; i < children.length; i += 2, n++) {
             // Left starts tall, right starts short: the columns interlock.
             final tall = (n + side).isEven;
             if (items.isNotEmpty) items.add(const SizedBox(height: _gap));
             items.add(
-              SizedBox(
-                height: w * (tall ? _tall : _short),
-                child: _GridTile(item: tiles[i]),
-              ),
+              SizedBox(height: w * (tall ? _tall : _short), child: children[i]),
             );
           }
           return Column(children: items);
@@ -1038,90 +972,115 @@ class _StaggeredGrid extends StatelessWidget {
   }
 }
 
-class _GridTile extends StatelessWidget {
-  const _GridTile({required this.item});
-  final _GridItem item;
+/// An occasion: its name over a tinted card (a photo goes behind it later).
+class _OccasionCard extends StatelessWidget {
+  const _OccasionCard({required this.occasion, required this.index});
+  final Occasion occasion;
+  final int index;
 
   @override
   Widget build(BuildContext context) {
     final radius = (20 * context.palette.roundness).clamp(12.0, 24.0);
-    final photo = ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DripImage(item.image, alignment: Alignment.topCenter),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment(0, 0.1),
-                colors: [Color(0xD90E1018), Color(0x000E1018)],
-              ),
-            ),
-          ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: 12,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  item.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.manrope(
-                    13,
-                    weight: FontWeight.w700,
-                    lineHeight: 17,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.price > 0
-                      ? '@${item.handle}  ·  ${formatPrice(item.price)}'
-                      : '@${item.handle}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.mono(
-                    10,
-                    color: AppColors.cream.withValues(alpha: 0.72),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: 10,
-            right: 10,
-            // Plain translucent chip: many tiles scroll at once, so no
-            // per-tile backdrop blur here.
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: AppColors.base.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
-              ),
-              child: Text(
-                '${item.score}',
-                style: AppText.mono(10, weight: FontWeight.w500),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
+    final o = occasion;
     return Tap(
-      onTap: item.onTap,
+      onTap: () => _openOccasion(context, o),
       scale: 0.97,
-      semanticLabel: '${item.title} by ${item.handle}',
-      child: item.heroId == null
-          ? photo
-          : FitHero(ootdId: item.heroId!, radius: radius, child: photo),
+      semanticLabel: 'Fits for ${o.label}',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(o.tint, AppColors.cream, 0.10)!,
+                    Color.lerp(o.tint, AppColors.base, 0.55)!,
+                  ],
+                ),
+              ),
+            ),
+            if (o.image != null) DripImage(o.image!),
+            // Keeps the name readable once a photo sits behind it.
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment(0, -0.2),
+                  colors: [Color(0xCC0E1018), Color(0x000E1018)],
+                ),
+              ),
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(radius),
+                border: Border.all(
+                  color: AppColors.cream.withValues(alpha: 0.10),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 14,
+              child: Text(
+                '${index + 1}'.padLeft(2, '0'),
+                style: AppText.mono(
+                  10,
+                  color: AppColors.cream.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.base.withValues(alpha: 0.35),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.cream.withValues(alpha: 0.18),
+                  ),
+                ),
+                child: Text('→', style: AppText.inter(13)),
+              ),
+            ),
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    o.label.toUpperCase(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.display(17, lineHeight: 21),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    o.line,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.manrope(
+                      11,
+                      color: AppColors.cream.withValues(alpha: 0.72),
+                      lineHeight: 15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1189,54 +1148,6 @@ class _HomeSkeleton extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Home before the catalogue has any fits: says so, and offers the stylist.
-class _NoFitsYet extends StatelessWidget {
-  const _NoFitsYet();
-
-  @override
-  Widget build(BuildContext context) {
-    return Glass(
-      radius: 20,
-      thickness: GlassThickness.thin,
-      shadow: false,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('FRESH FITS INCOMING', style: AppText.display(14)),
-          const SizedBox(height: 6),
-          Text(
-            "Drip's catalogue is still being stocked. Pull down to check "
-            'again. Meanwhile, digitize your own pieces in the Wardrobe.',
-            style: AppText.manrope(
-              13,
-              color: AppColors.muted,
-              lineHeight: 19,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Tap(
-            onTap: () => context.push('/wardrobe/capture'),
-            semanticLabel: 'Add a garment to your wardrobe',
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Text(
-                'ADD A GARMENT  →',
-                style: AppText.mono(
-                  11,
-                  color: context.palette.accent,
-                  weight: FontWeight.w500,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

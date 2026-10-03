@@ -129,7 +129,7 @@ class ColourTheoryProfileScreen extends ConsumerWidget {
                     AppButton(
                       label: 'BUILD WITH MY PALETTE ✦',
                       height: 44,
-                      onPressed: () => context.push('/studio'),
+                      onPressed: () => context.go('/studio'),
                     ),
                   ],
                 );

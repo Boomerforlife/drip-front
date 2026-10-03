@@ -29,6 +29,7 @@ class DripImage extends StatelessWidget {
     this.alignment = Alignment.center,
     this.semanticLabel,
     this.logicalWidth,
+    this.backdrop = true,
   });
 
   final String source;
@@ -40,6 +41,10 @@ class DripImage extends StatelessWidget {
   /// thumbnails). The photo is then decoded at that size instead of full
   /// resolution: far less memory and decode time, so lists scroll smoother.
   final double? logicalWidth;
+
+  /// Paints the tinted placeholder behind the image. Turn off for cut-outs
+  /// (transparent PNGs) shown on their own background.
+  final bool backdrop;
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +67,14 @@ class DripImage extends StatelessWidget {
       // blank flash, no spinner). Cached / synchronous frames skip the fade.
       frameBuilder: (context, child, frame, sync) {
         if (sync) return child;
+        if (!backdrop) {
+          return AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOut,
+            child: child,
+          );
+        }
         return Stack(
           fit: StackFit.passthrough,
           children: [

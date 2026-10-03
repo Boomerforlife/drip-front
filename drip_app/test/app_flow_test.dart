@@ -91,7 +91,12 @@ void main() {
     expect(find.text('Wear at least one colour'), findsOneWidget);
     await tapText(t, 'Cream');
     await tapText(t, 'CALIBRATE SPECTRUM →');
-    for (final step in ['YOUR PIECES', 'ACCESSORIES', 'LABELS', 'FIT & BUDGET']) {
+    for (final step in [
+      'YOUR PIECES',
+      'ACCESSORIES',
+      'LABELS',
+      'FIT & BUDGET',
+    ]) {
       expect(find.text(step), findsOneWidget);
       await tapText(t, 'SKIP FOR NOW');
     }
@@ -121,7 +126,7 @@ void main() {
 
     // Home feed.
     expect(find.text('Your story'), findsOneWidget);
-    expect(find.text('FRESH FITS'), findsOneWidget);
+    expect(find.text('SHOP BY OCCASION'), findsOneWidget);
     expect(find.text('ASK TAYLOR  →'), findsOneWidget);
 
     // Like the first fit in the Fashion Scroll, then come back Home.
@@ -132,7 +137,8 @@ void main() {
     await t.tap(
       find
           .byWidgetPredicate(
-            (w) => w is Tap && w.semanticLabel == (wasLiked ? 'Unlike' : 'Like'),
+            (w) =>
+                w is Tap && w.semanticLabel == (wasLiked ? 'Unlike' : 'Like'),
           )
           .first,
     );
@@ -140,14 +146,6 @@ void main() {
     expect(container.read(fitMarksProvider).isLiked(first.id), !wasLiked);
     container.read(routerProvider).go('/home');
     await settle(t, 900);
-
-    // Discover and search have no backend yet: they say so.
-    await tapText(t, 'SEARCH & DISCOVER  →');
-    expect(
-      find.text('SEARCH & DISCOVER IS COMING AFTER BETA ✦'),
-      findsOneWidget,
-    );
-    await settle(t, 2400); // the toast times out
 
     // Settings: toggles persist, skin recolours, logout returns to welcome.
     container.read(routerProvider).go('/settings');

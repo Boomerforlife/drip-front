@@ -22,6 +22,7 @@ NavTab? navTabFor(String path) {
     return NavTab.home;
   }
   if (starts('/scroll')) return NavTab.scroll;
+  if (starts('/studio')) return NavTab.studio;
   if (starts('/wardrobe') || starts('/saved') || starts('/outfit')) {
     return NavTab.wardrobe;
   }
@@ -41,6 +42,7 @@ NavTab? navTabFor(String path) {
 bool _extendsUnderNav(String path) =>
     path == '/home' ||
     path == '/scroll' ||
+    path == '/studio' ||
     path == '/wardrobe' ||
     path == '/me';
 
@@ -54,13 +56,15 @@ class MainShell extends StatelessWidget {
   static const _tabRoutes = {
     NavTab.home: '/home',
     NavTab.scroll: '/scroll',
+    NavTab.studio: '/studio',
     NavTab.wardrobe: '/wardrobe',
     NavTab.you: '/me',
   };
 
   void _goTab(BuildContext context, NavTab tab, NavTab? from) {
     final target = _tabRoutes[tab]!;
-    if (path.startsWith(target)) return;
+    // Tapping the tab you're on from deeper in it returns to its root.
+    if (path == target) return;
     TabDirection.value = (tab.index - (from ?? tab).index).sign;
     context.go(target);
   }
@@ -123,9 +127,6 @@ class MainShell extends StatelessWidget {
               child: DripBottomNav(
                 active: active,
                 onTab: (tab) => _goTab(context, tab, active),
-                onStudio: () {
-                  if (!path.startsWith('/studio')) context.push('/studio');
-                },
               ),
             ),
         ],

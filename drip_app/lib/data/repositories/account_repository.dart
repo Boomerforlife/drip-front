@@ -73,7 +73,15 @@ class ApiAccountRepository implements AccountRepository {
 
 /// In-memory stand-in for tests.
 class MockAccountRepository implements AccountRepository {
-  Account _me = const Account(id: 'me', genCreditsRemaining: 3);
+  /// [onboardingPrefs]: picks the account already holds (a returning user).
+  MockAccountRepository({Map<String, dynamic> onboardingPrefs = const {}})
+    : _me = Account(
+        id: 'me',
+        genCreditsRemaining: 3,
+        onboardingPrefs: onboardingPrefs,
+      );
+
+  Account _me;
   bool deleted = false;
 
   @override

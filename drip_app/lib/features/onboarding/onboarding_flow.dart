@@ -3,36 +3,54 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/motion.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/tap.dart';
+import '../../core/widgets/top_bar.dart';
+import '../../data/providers.dart';
 import '../session/session_controller.dart';
+import 'local_selfie.dart';
+import 'onboarding_data.dart';
 import 'onboarding_steps.dart';
 import 'onboarding_widgets.dart';
 
+/// The onboarding, in the order a stylist would ask: who we're dressing,
+/// what they wear, the colours they reach for, where they're going, the
+/// labels they trust, then (if they like) their face on the ticket. The
+/// name prints the ticket; one tap with Google saves it.
 enum _Step {
   welcome,
-  statement,
-  intro,
+  dressFor,
   eras,
   colours,
-  clothes,
-  acc,
-  brands,
-  fit,
+  labels,
+  selfie,
   name,
   build,
   ticket,
-  join,
 }
 
-/// The whole pre-sign-in journey (`Drip Onboarding.dc.html`) as one screen:
-/// welcome → the hard truth → what Drip is → eras and genres → colours →
-/// pieces, accessories, labels → fit and budget → name → "building" → the
-/// Drip ticket → Google sign-in. Picks are saved on the device as they're made
-/// and sent to the account once the user signs in.
+/// Steps saved by earlier versions of the flow, mapped onto this one so a
+/// relaunch mid-onboarding still resumes close to where the user was.
+const _legacySteps = {
+  'statement': _Step.dressFor,
+  'intro': _Step.dressFor,
+  'clothes': _Step.labels,
+  'acc': _Step.labels,
+  // Occasions left onboarding (they're picked in Your style now).
+  'occasions': _Step.labels,
+  'brands': _Step.labels,
+  'fit': _Step.selfie,
+  'join': _Step.ticket,
+};
+
+/// The whole pre-sign-in journey as one screen. Picks are saved on the device
+/// as they're made (temporary onboarding state) and reach the account only
+/// when the user saves their Drip; the selfie never does (local media). The
+/// step reached is saved too, so a relaunch picks up where the user left off.
 class OnboardingFlow extends ConsumerStatefulWidget {
   const OnboardingFlow({super.key});
 
@@ -45,14 +63,27 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
 
   int _step = 0;
   int _dir = 1;
+
+  /// The step before this one: arriving at the ticket straight from the
+  /// build beat, the printed ticket stays where it is.
+  _Step? _from;
   double _prog = 0;
   Color _glow = AppColors.red;
   String? _toast;
   bool _signingIn = false;
 
+  /// The camera or gallery is open.
+  bool _picking = false;
+
+  /// True for a beat after the step changes: taps landing mid-transition are
+  /// dropped so a quick double-tap can't skip a screen.
+  bool _moving = false;
+
   Timer? _buildTimer;
   Timer? _toastTimer;
   Timer? _resumeTimer;
+  Timer? _movingTimer;
+  Timer? _advanceTimer;
   late final AppLifecycleListener _lifecycle;
   late final TextEditingController _name;
 
@@ -62,6 +93,32 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: ref.read(onboardingProvider).name);
+    // Resume where the user left off. The "building" beat isn't a place to
+    // land on, so a relaunch there reopens the name step instead.
+    final saved = ref.read(localStoreProvider).onboardingStep;
+    final at =
+        _Step.values.where((s) => s.name == saved).firstOrNull ??
+        _legacySteps[saved];
+    if (at != null) _step = (at == _Step.build ? _Step.name : at).index;
+    // Never resume past a required answer that's missing (picks cleared or
+    // unreadable): land on that question instead.
+    final picks = ref.read(onboardingProvider);
+    for (final (step, ok) in [
+      (_Step.dressFor, picks.gender != null),
+      (_Step.eras, picks.moodIds.isNotEmpty),
+      (_Step.colours, picks.paletteIds.isNotEmpty),
+    ]) {
+      if (!ok && _step > step.index) {
+        _step = step.index;
+        break;
+      }
+    }
+    for (final e in OnboardingData.eras) {
+      if (picks.moodIds.contains(e.id)) {
+        _glow = e.glow;
+        break;
+      }
+    }
     // Back from Google's page without a session (closed, or cancelled): give
     // the deep link a moment to land, then let the user try again.
     _lifecycle = AppLifecycleListener(
@@ -82,6 +139,8 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     _buildTimer?.cancel();
     _toastTimer?.cancel();
     _resumeTimer?.cancel();
+    _movingTimer?.cancel();
+    _advanceTimer?.cancel();
     _lifecycle.dispose();
     _name.dispose();
     super.dispose();
@@ -89,13 +148,31 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
 
   // ───────────────────────────────────────────────────────────── navigation
 
+  /// Holds off further navigation until the current move has settled.
+  void _lock() {
+    _moving = true;
+    _movingTimer?.cancel();
+    _movingTimer = Timer(_settle, () => _moving = false);
+  }
+
   void _go(int n) {
     _buildTimer?.cancel();
+    _toastTimer?.cancel();
+    _advanceTimer?.cancel();
+    _lock();
     setState(() {
       _dir = n >= _step ? 1 : -1;
+      _from = _id;
       _step = n.clamp(0, _steps.length - 1);
       _prog = 0;
+      _toast = null;
+      // Leaving the last step while Google is open: the wait belongs to that
+      // step's button, not the next one's.
+      _signingIn = false;
     });
+    if (_id != _Step.build) {
+      unawaited(ref.read(localStoreProvider).setOnboardingStep(_id.name));
+    }
     if (_id == _Step.build) {
       _buildTimer = Timer.periodic(const Duration(milliseconds: 45), (t) {
         final p = _prog + 1.7;
@@ -112,38 +189,94 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     }
   }
 
+  /// Back one step. The "building" beat is skipped on the way back: it only
+  /// plays going forward, so back from the ticket lands on the name.
   void _back() {
-    if (_step > 0 && _id != _Step.build) _go(_step - 1);
+    if (_moving || _step == 0 || _id == _Step.build) return;
+    final to = _step - 1;
+    _go(_steps[to] == _Step.build ? to - 1 : to);
   }
 
+  /// A short note in the footer, right above the button it's about.
   void _say(String text) {
     _toastTimer?.cancel();
+    Haptics.tick();
     setState(() => _toast = text);
-    _toastTimer = Timer(const Duration(milliseconds: 1800), () {
+    _toastTimer = Timer(const Duration(milliseconds: 2400), () {
       if (mounted) setState(() => _toast = null);
     });
   }
 
+  /// A name is two letters or more (in any script), not just punctuation.
+  static bool _named(OnboardingState p) =>
+      _letter.allMatches(p.name).length >= 2;
+  static final _letter = RegExp(r'\p{L}', unicode: true);
+
   // ────────────────────────────────────────────────────────────── actions
 
+  /// "Dress me for" is one tap: the pick shows, then the flow moves on by
+  /// itself. Changing the pick before it does restarts the beat.
+  void _dressFor(String gender) {
+    ref.read(onboardingProvider.notifier).setGender(gender);
+    _advanceTimer?.cancel();
+    _advanceTimer = Timer(const Duration(milliseconds: 420), () {
+      if (mounted && _id == _Step.dressFor && !_moving) _go(_step + 1);
+    });
+  }
+
   Future<void> _primary() async {
+    // A tap landing while the step is still changing was meant for the old
+    // step's button: drop it, so one action never runs twice.
+    if (_moving || _picking) return;
     final picks = ref.read(onboardingProvider);
     switch (_id) {
+      case _Step.dressFor when picks.gender == null:
+        return _say('Tap the one that fits');
       case _Step.eras when picks.moodIds.isEmpty:
-        return _say('Pick at least one era');
+        return _say('Tap an era, or hit Surprise me');
       case _Step.colours when picks.paletteIds.isEmpty:
-        return _say('Wear at least one colour');
-      case _Step.name when picks.name.trim().length < 2:
-        return _say('Add your name first');
-      case _Step.join:
+        return _say('Tap a colour above to add it');
+      case _Step.selfie when ref.read(localSelfieProvider).value == null:
+        return _pickSelfie(ImageSource.camera);
+      case _Step.name when !_named(picks):
+        return _say(
+          picks.name.trim().isEmpty
+              ? 'Type your first name above'
+              : 'Your name needs two letters or more',
+        );
+      case _Step.ticket:
         return _google(picks);
       default:
         _go(_step + 1);
     }
   }
 
+  static const _settle = Duration(milliseconds: 350);
+
+  /// Camera or gallery. The photo stays on this phone; cancelling changes
+  /// nothing; a source that won't open says what to try instead.
+  Future<void> _pickSelfie(ImageSource source) async {
+    if (_picking || _moving) return;
+    setState(() => _picking = true);
+    try {
+      final picked = await ref.read(localSelfieProvider.notifier).pick(source);
+      if (picked) Haptics.commit();
+    } on SelfieUnavailable catch (e) {
+      if (mounted) _say(e.message);
+    } catch (_) {
+      if (mounted) _say('Couldn’t use that photo. Try another one');
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
   Future<void> _google(OnboardingState picks) async {
-    if (picks.name.trim().length < 2) return _say('Add your name first');
+    // The ticket needs a name; take the user to the field rather than
+    // leaving them stuck here (possible after a relaunch).
+    if (!_named(picks)) {
+      _go(_Step.name.index);
+      return _say('Add your name to finish your ticket');
+    }
     Haptics.commit();
     setState(() => _signingIn = true);
     final session = ref.read(sessionProvider.notifier);
@@ -158,132 +291,139 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     }
   }
 
+  /// The secondary button: "I already have an account" on the welcome,
+  /// the gallery (or a retake) on the selfie step.
   void _alt() {
-    if (_id == _Step.welcome) {
-      context.push('/signin');
-    } else {
-      _say('Phone sign-in · after beta');
+    if (_moving) return;
+    switch (_id) {
+      case _Step.welcome:
+        _lock();
+        context.push('/signin');
+      case _Step.selfie:
+        _pickSelfie(
+          ref.read(localSelfieProvider).value == null
+              ? ImageSource.gallery
+              : ImageSource.camera,
+        );
+      default:
     }
   }
 
   // ────────────────────────────────────────────────────────────────── view
 
+  /// The steps that ask something (the progress dots count these).
+  static const _asks = [
+    _Step.dressFor,
+    _Step.eras,
+    _Step.colours,
+    _Step.labels,
+    _Step.selfie,
+    _Step.name,
+    _Step.ticket,
+  ];
+
+  /// Eyebrow (why this is asked), title, and the one line that says what to
+  /// do. No "step 4 of 9": the dots and the tuning meter carry progress.
   static const _headers = {
-    _Step.intro: (
-      'The core mechanics',
-      'What is Drip?',
-      'Not another feed. A stylist that lives in your pocket.',
+    _Step.dressFor: (
+      'So your feed fits',
+      'Dress me for',
+      'Whose fits lead your Scroll? You can change it any time.',
     ),
     _Step.eras: (
-      'Establish your era',
+      'Your Scroll starts here',
       'Your vibe',
-      'Stop dressing for the algorithm. Pick what you’d actually wear.',
+      'Stop dressing for the algorithm. Pick every era you’d actually wear.',
     ),
     _Step.colours: (
-      'Visual personalization',
+      'Taylor styles around these',
       'Colour theory',
-      'Black goes with everything. Confidence goes with more.',
+      'Tap every colour you wear. Confidence goes with more.',
     ),
-    _Step.clothes: (
-      'What’s in the closet',
-      'Your pieces',
-      'A closet is just a personality on hangers.',
-    ),
-    _Step.acc: (
-      'The finishing touches',
-      'Accessories',
-      'The fit is the sentence. Accessories are the punctuation.',
-    ),
-    _Step.brands: (
-      'Where your fits come from',
+    _Step.labels: (
+      'Optional · fits from labels you trust',
       'Labels',
-      'Some of the labels we build your fits from. Tap the ones you wear.',
+      'Tap the ones you wear, then what you usually spend.',
     ),
-    _Step.fit: (
-      'Last calibration',
-      'Fit & budget',
-      'Fit is the flex. Nobody wears your size but you.',
+    _Step.selfie: (
+      'Optional · stays on this phone',
+      'See yourself in the fit',
+      'Add a selfie and your Drip ticket wears it. It never leaves this '
+          'phone.',
     ),
   };
 
+  static String _n(int n, String one, String many) =>
+      '$n ${n == 1 ? one : many}';
+
   Widget _body(OnboardingState picks) => switch (_id) {
     _Step.welcome => const WelcomeStep(),
-    _Step.statement => const StatementStep(),
-    _Step.intro => const IntroStep(),
+    _Step.dressFor => DressForStep(onPick: _dressFor),
     _Step.eras => ErasStep(onGlow: (c) => setState(() => _glow = c)),
     _Step.colours => ColoursStep(onGlow: (c) => setState(() => _glow = c)),
-    _Step.clothes => const ClothesStep(),
-    _Step.acc => const AccessoriesStep(),
-    _Step.brands => const BrandsStep(),
-    _Step.fit => const FitStep(),
+    _Step.labels => const LabelsStep(),
+    _Step.selfie => SelfieStep(busy: _picking),
     _Step.name => NameStep(
       controller: _name,
       handle: TicketInfo.handleFor(picks.name),
       onChanged: (v) {
         ref.read(onboardingProvider.notifier).setName(v);
       },
+      onSubmitted: _primary,
     ),
-    _Step.build => BuildStep(
-      progress: _prog,
-      colours: [for (final c in TicketInfo(picks).colours) Color(c.$3)],
-    ),
-    _Step.ticket => const TicketStep(),
-    _Step.join => JoinStep(
-      name: picks.name,
-      handle: TicketInfo.handleFor(picks.name),
-    ),
+    _Step.build => BuildStep(progress: _prog),
+    _Step.ticket => TicketStep(printed: _from == _Step.build),
   };
 
-  String _label(OnboardingState p) => switch (_id) {
+  /// The button names what it will do; while a requirement is unmet it says
+  /// what's needed instead, and on an optional step with nothing picked it's
+  /// an honest "skip".
+  String _label(OnboardingState p, bool hasSelfie) => switch (_id) {
     _Step.welcome => 'GET STARTED →',
-    _Step.statement => 'HELP ME →',
-    _Step.intro => 'UNDERSTOOD. NEXT →',
+    _Step.dressFor when p.gender == null => 'PICK ONE TO CONTINUE',
+    _Step.dressFor => 'CONTINUE →',
+    _Step.eras when p.moodIds.isEmpty => 'PICK AN ERA TO CONTINUE',
     _Step.eras =>
-      p.moodIds.length + p.genres.length > 0
-          ? 'LOCK IN ${p.moodIds.length + p.genres.length} VIBES →'
-          : 'CONFIRM VIBE →',
-    _Step.colours => 'CALIBRATE SPECTRUM →',
-    _Step.clothes =>
-      p.clothes.isNotEmpty
-          ? 'SAVE ${p.clothes.length} PIECES →'
-          : 'SAVE PIECES →',
-    _Step.acc =>
-      p.accessories.isNotEmpty
-          ? 'STACK ${p.accessories.length} →'
-          : 'ACCESSORISE →',
-    _Step.brands =>
-      p.brands.isNotEmpty
-          ? 'SAVE ${p.brands.length} LABELS →'
-          : 'SAVE LABELS →',
-    _Step.fit => 'BUILD MY DRIP →',
+      'LOCK IN ${_n(p.moodIds.length + p.genres.length, 'VIBE', 'VIBES')} →',
+    _Step.colours when p.paletteIds.isEmpty => 'PICK A COLOUR TO CONTINUE',
+    _Step.colours => 'SAVE ${_n(p.paletteIds.length, 'COLOUR', 'COLOURS')} →',
+    _Step.labels when p.brands.isEmpty => 'CONTINUE →',
+    _Step.labels => 'SAVE ${_n(p.brands.length, 'LABEL', 'LABELS')} →',
+    _Step.selfie when !hasSelfie => 'TAKE A SELFIE',
+    _Step.selfie => 'LOOKS GOOD →',
+    _Step.name when !_named(p) => 'ADD YOUR NAME TO CONTINUE',
     _Step.name => 'PRINT MY TICKET →',
     _Step.build => '',
-    _Step.ticket => 'CLAIM YOUR TICKET →',
-    _Step.join => 'CONTINUE WITH GOOGLE',
+    _Step.ticket => 'SAVE MY DRIP WITH GOOGLE',
   };
 
   @override
   Widget build(BuildContext context) {
     final picks = ref.watch(onboardingProvider);
+    final hasSelfie = ref.watch(localSelfieProvider).value != null;
     final id = _id;
-    final question = _headers.containsKey(id);
+    final header = _headers[id];
+    final question = header != null;
     final tuned =
-        (picks.moodIds.length * 9 +
+        ((picks.gender != null ? 8 : 0) +
+                picks.moodIds.length * 9 +
                 picks.genres.length * 4 +
                 picks.paletteIds.length * 5 +
-                picks.clothes.length * 2 +
-                picks.accessories.length * 2 +
+                picks.occasions.length * 3 +
                 picks.brands.length * 3 +
-                (_step >= _Step.fit.index ? 6 : 0))
+                (hasSelfie ? 6 : 0) +
+                (_step > _Step.labels.index ? 6 : 0))
             .clamp(0, 100);
     final disabled =
+        (id == _Step.dressFor && picks.gender == null) ||
         (id == _Step.eras && picks.moodIds.isEmpty) ||
-        (id == _Step.colours && picks.paletteIds.isEmpty);
-    final showDots = id != _Step.welcome;
-    final dots = [
-      for (final s in _steps)
-        if (s != _Step.welcome && s != _Step.build) s,
-    ];
+        (id == _Step.colours && picks.paletteIds.isEmpty) ||
+        (id == _Step.name && !_named(picks));
+    final reduced = Motion.reduced(context);
+    // Built here, not inside the LayoutBuilder below: that builder runs again
+    // during the transition, and would otherwise paint the *new* step on the
+    // outgoing page too.
+    final body = _body(picks);
 
     return PopScope(
       canPop: _step == 0,
@@ -323,7 +463,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                 ),
               ),
             ),
-            if (id == _Step.welcome || id == _Step.join)
+            if (id == _Step.welcome || id == _Step.ticket)
               const Positioned.fill(child: IgnorePointer(child: _DotGrid())),
             SafeArea(
               child: Column(
@@ -331,27 +471,75 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                   _TopRow(
                     canGoBack: _step > 0 && id != _Step.build,
                     onBack: _back,
-                    tuned: question && id != _Step.intro ? tuned : null,
+                    tuned: id == _Step.build
+                        ? (tuned + (100 - tuned) * _prog / 100).round()
+                        : question
+                        ? tuned
+                        : null,
                   ),
-                  if (question)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
-                      child: _Header(_headers[id]!, key: ValueKey(id)),
+                  // The pinned header cross-fades with the step (the outgoing
+                  // one clears first, so the two never read on top of each
+                  // other).
+                  AnimatedSwitcher(
+                    duration: Motion.content,
+                    switchInCurve: Motion.out,
+                    switchOutCurve: const Interval(0.5, 1),
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.topLeft,
+                      children: [...previous, ?current],
                     ),
+                    child: question
+                        ? Padding(
+                            key: ValueKey(id),
+                            padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+                            child: _Header(
+                              eyebrow: header.$1,
+                              title: header.$2,
+                              subtitle: header.$3,
+                            ),
+                          )
+                        : const SizedBox(
+                            key: ValueKey('no-header'),
+                            width: double.infinity,
+                          ),
+                  ),
                   Expanded(
+                    // Steps travel like pages: forward pushes the old one out
+                    // to the left as the new one arrives from the right (and
+                    // back the other way). Under reduced motion, a fade.
                     child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 420),
+                      duration: Motion.content,
                       switchInCurve: Motion.out,
-                      transitionBuilder: (child, anim) => FadeTransition(
-                        opacity: anim,
-                        child: SlideTransition(
-                          position: Tween<Offset>(
-                            begin: Offset(0.07 * _dir, 0),
-                            end: Offset.zero,
-                          ).animate(anim),
-                          child: child,
-                        ),
+                      switchOutCurve: const Interval(0.4, 1),
+                      // Each page fills the area. A scroll view sizes itself
+                      // to its content, so loose constraints let a narrow
+                      // step drift off the 24px gutter.
+                      layoutBuilder: (current, previous) => Stack(
+                        fit: StackFit.expand,
+                        children: [...previous, ?current],
                       ),
+                      transitionBuilder: (child, anim) {
+                        if (reduced) {
+                          return FadeTransition(opacity: anim, child: child);
+                        }
+                        if (id == _Step.ticket && _from == _Step.build) {
+                          return FadeTransition(opacity: anim, child: child);
+                        }
+                        final incoming = child.key == ValueKey(id);
+                        return FadeTransition(
+                          opacity: anim,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: Offset(
+                                (incoming ? 0.07 : -0.07) * _dir,
+                                0,
+                              ),
+                              end: Offset.zero,
+                            ).animate(anim),
+                            child: child,
+                          ),
+                        );
+                      },
                       child: LayoutBuilder(
                         key: ValueKey(id),
                         builder: (context, box) => SingleChildScrollView(
@@ -366,7 +554,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                             constraints: BoxConstraints(
                               minHeight: box.maxHeight - (question ? 44 : 32),
                             ),
-                            child: _body(picks),
+                            child: body,
                           ),
                         ),
                       ),
@@ -374,56 +562,36 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                   ),
                   if (id != _Step.build)
                     _Footer(
-                      dots: showDots ? dots.indexOf(id) : -1,
-                      dotCount: dots.length,
-                      label: _label(picks),
+                      dots: _asks.indexOf(id),
+                      dotCount: _asks.length,
+                      label: _label(picks, hasSelfie),
                       disabled: disabled,
-                      loading: _signingIn,
+                      loading: _signingIn || (_picking && id == _Step.selfie),
                       onPrimary: _signingIn ? () {} : _primary,
-                      altLabel: id == _Step.welcome
-                          ? 'I ALREADY HAVE AN ACCOUNT'
-                          : id == _Step.join
-                          ? 'CONTINUE WITH PHONE'
-                          : null,
+                      // While Google is open, say what to do; otherwise any
+                      // note about the button replaces the dots above it.
+                      message:
+                          _toast ??
+                          (_signingIn
+                              ? 'Finish signing in with Google, then come '
+                                    'back here'
+                              : null),
+                      altLabel: switch (id) {
+                        _Step.welcome => 'I ALREADY HAVE AN ACCOUNT',
+                        _Step.selfie when !hasSelfie => 'CHOOSE FROM GALLERY',
+                        _Step.selfie => 'RETAKE',
+                        _ => null,
+                      },
                       onAlt: _alt,
-                      onSkip:
-                          const {
-                            _Step.clothes,
-                            _Step.acc,
-                            _Step.brands,
-                            _Step.fit,
-                          }.contains(id)
-                          ? () => _go(_step + 1)
+                      // Skipping the selfie is always there, but quiet.
+                      skipLabel: id == _Step.selfie && !hasSelfie
+                          ? 'Skip for now'
                           : null,
+                      onSkip: () {
+                        if (!_moving && !_picking) _go(_step + 1);
+                      },
                     ),
                 ],
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 104,
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity: _toast == null ? 0 : 1,
-                  duration: const Duration(milliseconds: 300),
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.elevated,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _toast ?? '',
-                        style: AppText.mono(11, letterSpacing: 1),
-                      ),
-                    ),
-                  ),
-                ),
               ),
             ),
           ],
@@ -454,61 +622,62 @@ class _TopRow extends StatelessWidget {
             SizedBox(
               width: 44,
               height: 44,
-              child: canGoBack
-                  ? Tap(
-                      onTap: onBack,
-                      semanticLabel: 'Back',
-                      child: Center(
-                        child: Text(
-                          '←',
-                          style: AppText.inter(18, color: AppColors.muted),
-                        ),
-                      ),
-                    )
-                  : null,
+              child: AnimatedOpacity(
+                opacity: canGoBack ? 1 : 0,
+                duration: Motion.quick,
+                child: canGoBack ? BackGlyph(onTap: onBack) : null,
+              ),
             ),
             const Spacer(),
             if (tuned != null)
               Padding(
                 padding: const EdgeInsets.only(right: 14),
-                child: Row(
-                  children: [
-                    Text(
-                      'FEED TUNED',
-                      style: AppText.mono(
-                        10,
-                        color: AppColors.muted,
-                        letterSpacing: 1.5,
+                child: Semantics(
+                  label: 'Feed tuned $tuned percent',
+                  child: ExcludeSemantics(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(end: tuned!.toDouble()),
+                      duration: Motion.dur(context, Motion.content),
+                      curve: Motion.out,
+                      builder: (context, v, _) => Row(
+                        children: [
+                          Text(
+                            'FEED TUNED',
+                            style: AppText.mono(
+                              10,
+                              color: AppColors.muted,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 64,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.elevated,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              width: 64 * v / 100,
+                              decoration: BoxDecoration(
+                                color: AppColors.cyan,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 38,
+                            child: Text(
+                              '${v.round()}%',
+                              textAlign: TextAlign.right,
+                              style: AppText.mono(10, color: AppColors.cyan),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 64,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.elevated,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                      alignment: Alignment.centerLeft,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 600),
-                        curve: Motion.out,
-                        width: 64 * tuned! / 100,
-                        decoration: BoxDecoration(
-                          color: AppColors.cyan,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 38,
-                      child: Text(
-                        '$tuned%',
-                        textAlign: TextAlign.right,
-                        style: AppText.mono(10, color: AppColors.cyan),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
           ],
@@ -519,23 +688,35 @@ class _TopRow extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header(this.h, {super.key});
-  final (String, String, String) h;
+  const _Header({
+    required this.eyebrow,
+    required this.title,
+    required this.subtitle,
+  });
+  final String eyebrow;
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
     return Enter(
-      dy: 16,
-      duration: const Duration(milliseconds: 500),
+      dy: 12,
+      duration: Motion.content,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Eyebrow(h.$1),
+          Eyebrow(eyebrow),
           const SizedBox(height: 8),
-          Text(h.$2.toUpperCase(), style: AppText.display(28, lineHeight: 34)),
+          Semantics(
+            header: true,
+            child: Text(
+              title.toUpperCase(),
+              style: AppText.display(28, lineHeight: 34),
+            ),
+          ),
           const SizedBox(height: 10),
           Text(
-            h.$3,
+            subtitle,
             style: AppText.manrope(15, weight: FontWeight.w800, lineHeight: 20),
           ),
         ],
@@ -553,7 +734,9 @@ class _Footer extends StatelessWidget {
     required this.loading,
     required this.onPrimary,
     required this.onAlt,
+    this.message,
     this.altLabel,
+    this.skipLabel,
     this.onSkip,
   });
 
@@ -565,72 +748,131 @@ class _Footer extends StatelessWidget {
   final bool loading;
   final VoidCallback onPrimary;
   final VoidCallback onAlt;
+
+  /// A note about the button (a requirement, a failure, what to do next).
+  /// It takes the dots' place, right where the eye already is.
+  final String? message;
   final String? altLabel;
+
+  /// A quiet way past an optional step whose main button does something
+  /// (the selfie): full-size to tap, light to look at.
+  final String? skipLabel;
   final VoidCallback? onSkip;
 
   @override
   Widget build(BuildContext context) {
+    final spoken = label.replaceAll('→', '').trim();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            height: 30,
-            child: dots < 0
-                ? null
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (var i = 0; i < dotCount; i++)
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Motion.out,
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          width: i == dots ? 24 : 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: i == dots
-                                ? AppColors.red
-                                : AppColors.elevated,
-                            borderRadius: BorderRadius.circular(3),
+          AnimatedSize(
+            duration: Motion.quick,
+            curve: Motion.out,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 30),
+              child: AnimatedSwitcher(
+                duration: Motion.quick,
+                child: message != null
+                    ? Padding(
+                        key: ValueKey(message),
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            message!.toUpperCase(),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            style: AppText.mono(
+                              11,
+                              letterSpacing: 1,
+                              lineHeight: 16,
+                            ),
                           ),
                         ),
-                    ],
-                  ),
+                      )
+                    : dots < 0
+                    ? const SizedBox(key: ValueKey('none'), height: 30)
+                    : Semantics(
+                        key: const ValueKey('dots'),
+                        label: 'Screen ${dots + 1} of $dotCount',
+                        child: ExcludeSemantics(
+                          child: SizedBox(
+                            height: 30,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (var i = 0; i < dotCount; i++)
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Motion.out,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 3,
+                                    ),
+                                    width: i == dots ? 24 : 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: i == dots
+                                          ? AppColors.red
+                                          : i < dots
+                                          ? AppColors.red.withValues(
+                                              alpha: 0.35,
+                                            )
+                                          : AppColors.elevated,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
           ),
           Tap(
             onTap: onPrimary,
             scale: 0.97,
-            semanticLabel: label,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: disabled
-                    ? AppColors.elevated.withValues(alpha: 0.6)
-                    : AppColors.red,
-                borderRadius: BorderRadius.circular(24),
+            semanticLabel: loading ? 'Opening Google sign-in' : spoken,
+            child: ExcludeSemantics(
+              child: AnimatedContainer(
+                duration: Motion.quick,
+                height: 52,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: disabled
+                      ? AppColors.elevated.withValues(alpha: 0.6)
+                      : AppColors.red,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: AnimatedSwitcher(
+                  duration: Motion.quick,
+                  child: loading
+                      ? const SizedBox(
+                          key: ValueKey('loading'),
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.base,
+                          ),
+                        )
+                      : Text(
+                          label,
+                          key: ValueKey(label),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.mono(
+                            12,
+                            weight: FontWeight.w500,
+                            letterSpacing: 1.5,
+                            color: disabled ? AppColors.muted : AppColors.base,
+                          ),
+                        ),
+                ),
               ),
-              child: loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.base,
-                      ),
-                    )
-                  : Text(
-                      label,
-                      style: AppText.mono(
-                        12,
-                        weight: FontWeight.w500,
-                        letterSpacing: 1.5,
-                        color: disabled ? AppColors.muted : AppColors.base,
-                      ),
-                    ),
             ),
           ),
           if (altLabel != null) ...[
@@ -639,37 +881,39 @@ class _Footer extends StatelessWidget {
               onTap: onAlt,
               scale: 0.97,
               semanticLabel: altLabel,
-              child: Container(
-                height: 52,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(
-                    color: AppColors.cream.withValues(alpha: 0.22),
+              child: ExcludeSemantics(
+                child: Container(
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: AppColors.cream.withValues(alpha: 0.22),
+                    ),
                   ),
-                ),
-                child: Text(
-                  altLabel!,
-                  style: AppText.mono(
-                    12,
-                    weight: FontWeight.w500,
-                    letterSpacing: 1.5,
+                  child: Text(
+                    altLabel!,
+                    style: AppText.mono(
+                      12,
+                      weight: FontWeight.w500,
+                      letterSpacing: 1.5,
+                    ),
                   ),
                 ),
               ),
             ),
           ],
-          if (onSkip != null)
+          if (skipLabel != null)
             Tap(
               onTap: onSkip,
-              semanticLabel: 'Skip for now',
+              semanticLabel: skipLabel,
               child: Container(
-                height: 32,
+                height: 44,
                 alignment: Alignment.center,
                 child: Text(
-                  'SKIP FOR NOW',
+                  skipLabel!.toUpperCase(),
                   style: AppText.mono(
-                    10,
+                    11,
                     color: AppColors.muted,
                     letterSpacing: 1.5,
                   ),

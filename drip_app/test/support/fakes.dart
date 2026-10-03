@@ -71,6 +71,7 @@ List<Override> testOverrides(
   SharedPreferences prefs, {
   bool signedIn = false,
   FakeAuthRepository? auth,
+  AccountRepository? account,
   FeedRepository? feed,
   OutfitRepository? outfits,
 }) => [
@@ -78,7 +79,9 @@ List<Override> testOverrides(
   authRepositoryProvider.overrideWithValue(
     auth ?? FakeAuthRepository(signedIn: signedIn),
   ),
-  accountRepositoryProvider.overrideWith((_) => MockAccountRepository()),
+  accountRepositoryProvider.overrideWith(
+    (_) => account ?? MockAccountRepository(),
+  ),
   feedRepositoryProvider.overrideWith((_) => feed ?? MockFeedRepository()),
   outfitRepositoryProvider.overrideWith(
     (_) => outfits ?? MockOutfitRepository(),

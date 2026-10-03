@@ -20,6 +20,50 @@ class ColourOption {
   Color get color => Color(hex);
 }
 
+/// The type treatments for labels without a logo.
+enum MarkFace {
+  /// Bungee caps: loud, poster-like.
+  poster,
+
+  /// Fredoka, lowercase: friendly and round.
+  round,
+
+  /// Manrope light, lowercase: quiet, crafted.
+  light,
+
+  /// Manrope extra-bold.
+  heavy,
+
+  /// Manrope extra-bold caps, widely tracked.
+  spaced,
+
+  /// DM Mono caps, tracked like a price tag.
+  tag,
+}
+
+class BrandLook {
+  const BrandLook(
+    this.fill,
+    this.ink, {
+    this.logo,
+    this.ratio = 1,
+    this.mark,
+    this.face = MarkFace.heavy,
+  });
+
+  /// The tile's colour and the colour drawn on it (0xAARRGGBB).
+  final int fill;
+  final int ink;
+
+  /// An SVG logo, and its width ÷ height.
+  final String? logo;
+  final double ratio;
+
+  /// Otherwise, the name as set on the tile, and how.
+  final String? mark;
+  final MarkFace face;
+}
+
 class FitOption {
   const FitOption(this.id, this.label, this.desc, this.bar);
   final String id;
@@ -57,6 +101,30 @@ abstract final class OnboardingData {
     'Balletcore',
     'Avant-garde',
   ];
+
+  /// Genres that sit naturally with each era: what "more like you" offers
+  /// once eras are picked.
+  static const eraGenres = {
+    'y2k': ['Coquette', 'Indie sleaze', 'Balletcore'],
+    'streetwear': ['Skater', 'Athleisure', 'Gorpcore'],
+    'minimal': ['Quiet luxury', 'Old money'],
+    'grunge': ['Indie sleaze', 'Dark academia', 'Skater'],
+    'vintage': ['Old money', 'Boho', 'Cottagecore', 'Desi fusion'],
+    'preppy': ['Old money', 'Dark academia', 'Quiet luxury'],
+    'techwear': ['Gorpcore', 'Avant-garde', 'Workwear'],
+  };
+
+  /// Up to six genres for [eras], in the order the eras are offered.
+  static List<String> suggestedGenres(Set<String> eras) {
+    final out = <String>[];
+    for (final e in OnboardingData.eras) {
+      if (!eras.contains(e.id)) continue;
+      for (final g in eraGenres[e.id] ?? const <String>[]) {
+        if (!out.contains(g)) out.add(g);
+      }
+    }
+    return out.take(6).toList();
+  }
 
   static const genreImages = [
     'scene_editorial',
@@ -170,6 +238,99 @@ abstract final class OnboardingData {
     'Small batch',
     'Limited drops',
   ];
+
+  /// How each label's tile looks: filled edge to edge in the label's own
+  /// colour, with its logo (Simple Icons, where one exists) or a type mark
+  /// set in Drip's faces. The type marks are Drip's treatment of the name,
+  /// not imitations of anyone's logo; the categories take Drip's palette.
+  /// Drop an official SVG in `assets/brands/` and give it a [BrandLook.logo]
+  /// to swap one in.
+  static const brandLooks = <String, BrandLook>{
+    'Nike': BrandLook(
+      0xFFF36F21,
+      0xFFFFFFFF,
+      logo: 'assets/brands/nike.svg',
+      ratio: 2.86,
+    ),
+    'Adidas': BrandLook(
+      0xFFF4F4F2,
+      0xFF111111,
+      logo: 'assets/brands/adidas.svg',
+      ratio: 1.59,
+    ),
+    'Zara': BrandLook(
+      0xFF101010,
+      0xFFF4F1EA,
+      logo: 'assets/brands/zara.svg',
+      ratio: 2.4,
+    ),
+    'H&M': BrandLook(
+      0xFFE50010,
+      0xFFFFFFFF,
+      logo: 'assets/brands/hm.svg',
+      ratio: 1.51,
+    ),
+    'Uniqlo': BrandLook(
+      0xFFF4F4F2,
+      0xFFE60012,
+      logo: 'assets/brands/uniqlo.svg',
+      ratio: 1,
+    ),
+    'Levi’s': BrandLook(
+      0xFF24395C, // denim indigo
+      0xFFF4F1EA,
+      mark: 'LEVI’S',
+      face: MarkFace.poster,
+    ),
+    'Puma': BrandLook(
+      0xFF161616,
+      0xFFFFFFFF,
+      logo: 'assets/brands/puma.svg',
+      ratio: 1.3,
+    ),
+    'New Balance': BrandLook(
+      0xFF77797B, // the grey of the grey sneakers
+      0xFFFFFFFF,
+      logo: 'assets/brands/newbalance.svg',
+      ratio: 2.08,
+    ),
+    'Bewakoof': BrandLook(
+      0xFFFDD835,
+      0xFF111111,
+      mark: 'bewakoof',
+      face: MarkFace.round,
+    ),
+    'Snitch': BrandLook(
+      0xFFE9E2D6,
+      0xFF111111,
+      mark: 'SNITCH',
+      face: MarkFace.spaced,
+    ),
+    'Fabindia': BrandLook(
+      0xFFB5532A, // terracotta, for the handloom
+      0xFFF6EBDD,
+      mark: 'fabindia',
+      face: MarkFace.light,
+    ),
+    'Thrifted': BrandLook(
+      0xFFC2A882, // Drip sand
+      0xFF2A2219,
+      mark: 'THRIFTED',
+      face: MarkFace.tag,
+    ),
+    'Indie labels': BrandLook(
+      0xFFB9A6E8, // Drip lilac
+      0xFF1E1530,
+      mark: 'indie\nlabels',
+      face: MarkFace.heavy,
+    ),
+    'Sneaker drops': BrandLook(
+      0xFFD7FF3A, // volt
+      0xFF111111,
+      mark: 'SNEAKER\nDROPS',
+      face: MarkFace.poster,
+    ),
+  };
 
   static const fits = [
     FitOption('oversized', 'Oversized', 'Dropped shoulders', 92),

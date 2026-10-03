@@ -20,6 +20,7 @@ import '../../routing/main_shell.dart';
 import '../session/reset_app_state.dart';
 import '../session/session_controller.dart';
 import '../social/social_controller.dart';
+import '../onboarding/onboarding_data.dart';
 import 'settings_controller.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -58,6 +59,7 @@ class SettingsScreen extends ConsumerWidget {
     final notifier = ref.read(settingsProvider.notifier);
     final me = ref.watch(myProfileProvider).value;
     final email = ref.watch(sessionProvider.select((s) => s.user?.email));
+    final picks = ref.watch(onboardingProvider);
 
     Widget row(
       String label, {
@@ -65,7 +67,7 @@ class SettingsScreen extends ConsumerWidget {
       Widget? trailing,
       VoidCallback? onTap,
       bool last = false,
-    }) => _Row(
+    }) => SettingsRow(
       label: label,
       value: value,
       trailing: trailing,
@@ -88,7 +90,7 @@ class SettingsScreen extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 24),
               children: [
                 const _Section('01 · ACCOUNT'),
-                _Group(
+                SettingsGroup(
                   children: [
                     Tap(
                       onTap: () => context.go('/me'),
@@ -161,8 +163,19 @@ class SettingsScreen extends ConsumerWidget {
                     row('Signed in with', value: 'Google', last: true),
                   ],
                 ),
-                const _Section('02 · PRIVACY'),
-                _Group(
+                const _Section('02 · YOUR STYLE'),
+                SettingsGroup(
+                  children: [
+                    row(
+                      'Style, colours & more',
+                      value: _styleSummary(picks),
+                      last: true,
+                      onTap: () => context.push('/me/style'),
+                    ),
+                  ],
+                ),
+                const _Section('03 · PRIVACY'),
+                SettingsGroup(
                   children: [
                     row(
                       'Private Account',
@@ -175,7 +188,8 @@ class SettingsScreen extends ConsumerWidget {
                     row(
                       'Who Can Interact',
                       value: s.whoCanInteract.label,
-                      onTap: () => showAfterBeta(context, 'Interaction controls'),
+                      onTap: () =>
+                          showAfterBeta(context, 'Interaction controls'),
                     ),
                     row(
                       'OOTD Visibility',
@@ -185,8 +199,8 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const _Section('03 · APPEARANCE'),
-                _Group(
+                const _Section('04 · APPEARANCE'),
+                SettingsGroup(
                   children: [
                     row(
                       'Themes',
@@ -226,8 +240,8 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const _Section('04 · NOTIFICATIONS & DEV'),
-                _Group(
+                const _Section('05 · NOTIFICATIONS & DEV'),
+                SettingsGroup(
                   children: [
                     row(
                       'Push Notifications',
@@ -251,8 +265,8 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                const _Section('05 · INFO'),
-                _Group(
+                const _Section('06 · INFO'),
+                SettingsGroup(
                   children: [
                     row(
                       'About DRIP',
@@ -348,6 +362,18 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+/// "Y2K, Streetwear +1": what the user's style is, at a glance.
+String _styleSummary(OnboardingState picks) {
+  final eras = [
+    for (final e in OnboardingData.eras)
+      if (picks.moodIds.contains(e.id)) e.label,
+  ];
+  if (eras.isEmpty) return 'Not set';
+  return eras.length <= 2
+      ? eras.join(', ')
+      : '${eras.take(2).join(', ')} +${eras.length - 2}';
+}
+
 class _Section extends StatelessWidget {
   const _Section(this.text);
   final String text;
@@ -359,8 +385,9 @@ class _Section extends StatelessWidget {
   );
 }
 
-class _Group extends StatelessWidget {
-  const _Group({required this.children});
+/// A rounded group of [SettingsRow]s (also used by the Your style screen).
+class SettingsGroup extends StatelessWidget {
+  const SettingsGroup({super.key, required this.children});
   final List<Widget> children;
 
   @override
@@ -379,8 +406,10 @@ class _Group extends StatelessWidget {
   }
 }
 
-class _Row extends StatelessWidget {
-  const _Row({
+/// One settings line: label, optional value, chevron when it opens something.
+class SettingsRow extends StatelessWidget {
+  const SettingsRow({
+    super.key,
     required this.label,
     this.value,
     this.trailing,

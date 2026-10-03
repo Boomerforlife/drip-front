@@ -196,8 +196,30 @@ class _Body extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SectionLabel('YOUR STYLE DNA'),
-              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Expanded(child: SectionLabel('YOUR STYLE DNA')),
+                  // The picks behind the DNA and palette, editable.
+                  Tap(
+                    onTap: () => context.push('/me/style'),
+                    semanticLabel: 'Edit your style',
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 12,
+                      ),
+                      child: Text(
+                        'EDIT',
+                        style: AppText.mono(
+                          11,
+                          color: AppColors.cyan,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               DnaChips(tags: user.styleDna),
               const SizedBox(height: 12),
               Tap(

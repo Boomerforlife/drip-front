@@ -17,6 +17,7 @@ class LocalStore {
   static const _prefsPending = 'onboarding.pending';
   static const _rotation = 'wardrobe.rotation';
   static const _flow = 'onboarding.flow';
+  static const _step = 'onboarding.step';
   static const _moods = 'onboarding.moods';
   static const _palette = 'onboarding.palette';
   static const _following = 'social.following';
@@ -28,6 +29,25 @@ class LocalStore {
   /// Onboarding picks made before sign-in, not yet sent with `PATCH /me`.
   bool get prefsPending => _prefs.getBool(_prefsPending) ?? false;
   Future<void> setPrefsPending(bool v) => _prefs.setBool(_prefsPending, v);
+
+  /// Prefs fields changed on this device since it last matched the account.
+  Set<String> get touchedFields =>
+      _prefs.getStringList('onboarding.touched')?.toSet() ?? {};
+  Future<void> setTouchedFields(Set<String> v) =>
+      _prefs.setStringList('onboarding.touched', v.toList());
+
+  /// The selfie taken in onboarding: a file on this device. Never part of
+  /// the account; see `LocalSelfie`.
+  String? get selfiePath => _prefs.getString('media.selfie');
+  Future<void> setSelfiePath(String? v) => v == null
+      ? _prefs.remove('media.selfie')
+      : _prefs.setString('media.selfie', v);
+
+  /// Onboarding was just finished on this device: the next sign-in shows the
+  /// one-time "your Drip is ready" moment before Home.
+  bool get firstRunPending => _prefs.getBool('onboarding.firstRun') ?? false;
+  Future<void> setFirstRunPending(bool v) =>
+      _prefs.setBool('onboarding.firstRun', v);
 
   /// Where the user placed each piece on a saved Studio fit (the API keeps
   /// only which pieces, not where). Studio category → [x, y, w, h] fractions.
@@ -82,6 +102,10 @@ class LocalStore {
   /// All onboarding picks as one JSON document (see `OnboardingState`).
   String? get flowJson => _prefs.getString(_flow);
   Future<void> setFlowJson(String v) => _prefs.setString(_flow, v);
+
+  /// The onboarding step the user last reached, so a relaunch resumes there.
+  String? get onboardingStep => _prefs.getString(_step);
+  Future<void> setOnboardingStep(String v) => _prefs.setString(_step, v);
 
   Set<String>? get moodIds => _prefs.getStringList(_moods)?.toSet();
   Future<void> setMoodIds(Set<String> ids) =>

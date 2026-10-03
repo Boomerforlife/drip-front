@@ -9,7 +9,10 @@ import '../core/motion.dart';
 import '../features/discover/discover_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/ootd_viewer_screen.dart';
+import '../data/providers.dart';
 import '../features/onboarding/onboarding_flow.dart';
+import '../features/onboarding/ready_screen.dart';
+import '../features/onboarding/style_editor_screen.dart';
 import '../features/scroll/fashion_scroll_screen.dart';
 import '../features/outfits/outfit_detail_screen.dart';
 import '../features/photoshoot/photoshoot_result_screen.dart';
@@ -41,6 +44,9 @@ abstract final class Routes {
   static const welcome = '/welcome';
   static const signIn = '/signin';
   static const home = '/home';
+
+  /// First-run close of onboarding ("your Drip is ready").
+  static const ready = '/ready';
 }
 
 /// Page with the app's standard transition: a short fade + rise, on the
@@ -179,9 +185,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       final public =
           loc == Routes.splash || loc == Routes.welcome || loc == Routes.signIn;
       if (!signedIn && !public) return Routes.welcome;
-      // The session just arrived (back from Google): straight into the app.
+      // The session just arrived (back from Google): into the app, by way
+      // of the one-time "ready" moment if onboarding was just finished here.
       if (signedIn && (loc == Routes.welcome || loc == Routes.signIn)) {
-        return Routes.home;
+        return ref.read(localStoreProvider).firstRunPending
+            ? Routes.ready
+            : Routes.home;
       }
       return null;
     },
@@ -189,6 +198,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       _page(Routes.splash, (_) => const SplashScreen(), fade: true),
       _page(Routes.welcome, (_) => const OnboardingFlow(), fade: true),
       _page(Routes.signIn, (_) => const SignInScreen()),
+      _page(Routes.ready, (_) => const ReadyScreen(), fade: true),
+      // Editing one part of the user's style (full screen, its own SAVE).
+      _page(
+        '/style/:part',
+        (s) => StylePartScreen(
+          part: stylePartFrom(s.pathParameters['part']) ?? StylePart.eras,
+        ),
+      ),
 
       // Full-screen (no bottom navigation).
       _page(
@@ -261,6 +278,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                 tabPage(state, const MyProfileScreen()),
           ),
           _page('/me/colour-theory', (_) => const ColourTheoryProfileScreen()),
+          _page('/me/style', (_) => const StyleScreen()),
           _page(
             '/u/:handle',
             (s) => PublicProfileScreen(handle: s.pathParameters['handle']!),

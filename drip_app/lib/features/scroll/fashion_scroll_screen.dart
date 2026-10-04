@@ -519,11 +519,8 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
 
 // ──────────────────────────────────────────────────────────────────── stage
 
-/// Width kept clear on the right of a collage for the action rail.
-const _railGutter = 60.0;
-
 /// Everything between the top chrome and the info panel: the whole collage
-/// (collages only) and the action rail. It is whatever room the panel leaves,
+/// (collages only) and the action rail on top. It is whatever room the panel leaves,
 /// so opening the details shrinks the collage instead of covering it.
 class _Stage extends StatelessWidget {
   const _Stage({
@@ -539,19 +536,12 @@ class _Stage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
+        // Full width: collages (layout v3, 1080 × 1800) keep the lower-right
+        // corner empty for the rail, which floats over it.
         if (outfit.isCollage)
           Positioned.fill(
-            child: AnimatedPadding(
-              duration: Motion.dur(context, Motion.content),
-              curve: Motion.out,
-              // The rail slides away with the details, so the collage may use
-              // the width it held.
-              padding: EdgeInsets.fromLTRB(
-                12,
-                4,
-                expanded ? 12 : _railGutter,
-                8,
-              ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
               child: _FittedCollage(outfit: outfit, onBackground: onBackground),
             ),
           ),

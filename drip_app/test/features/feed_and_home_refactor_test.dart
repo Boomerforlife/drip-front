@@ -216,8 +216,11 @@ void main() {
         expect(collage.right, lessThanOrEqualTo(screen.width));
         expect(collage.top, greaterThanOrEqualTo(0));
         expect(collage.bottom, lessThanOrEqualTo(name.top));
-        // Not under the rail.
-        expect(collage.right, lessThanOrEqualTo(like.left + 0.5));
+        // Full width, centred: no gutter kept for the rail, which floats over
+        // the corner collages leave empty (layout v3).
+        expect(collage.left, greaterThanOrEqualTo(12 - 0.5));
+        expect(screen.width - collage.right, closeTo(collage.left, 0.5));
+        expect(like.right, greaterThan(collage.right - collage.width * 0.14));
         // Not tiny.
         expect(collage.width, greaterThan(screen.width * 0.5));
 

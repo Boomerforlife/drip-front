@@ -17,6 +17,7 @@ import '../../core/widgets/glass.dart';
 import '../../core/widgets/like_burst.dart';
 import '../../core/widgets/overlays.dart';
 import '../../core/widgets/skeleton.dart';
+import '../../core/widgets/slide_up_sheet.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../data/models/outfit.dart';
@@ -25,6 +26,7 @@ import '../home/occasions.dart';
 import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
 import '../outfits/shop_sheet.dart';
+import 'fit_pieces_sheet.dart';
 import 'shop_the_look.dart';
 
 /// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
@@ -344,9 +346,8 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   int _burst = 0;
   bool _expanded = false;
 
-  /// Shop the look: the collage's pieces lifted out, with the carousel.
-  bool _shopping = false;
-  int _shopIndex = 0;
+  /// Shop the look: the sheet is open on this spot's piece.
+  int? _shopAt;
   late List<ShopSpot> _spots = shopSpots(widget.outfit);
 
   /// The collage's background colour, once its picture has decoded.
@@ -358,26 +359,37 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     // Leaving a card closes its details.
     if (old.active && !widget.active) {
       _expanded = false;
-      _shopping = false;
+      _shopAt = null;
     }
     if (!identical(old.outfit, widget.outfit)) {
       _spots = shopSpots(widget.outfit);
-      _shopping = false;
+      _shopAt = null;
     }
   }
 
   void _openShop(int i) {
     Haptics.tick();
-    setState(() {
-      _shopping = true;
-      _shopIndex = i;
-    });
+    setState(() => _shopAt = i);
   }
 
-  void _closeShop() => setState(() => _shopping = false);
+  void _closeShop() => setState(() => _shopAt = null);
 
-  void _selectPiece(int i) {
-    if (i != _shopIndex) setState(() => _shopIndex = i);
+  /// "Shop the look" for the tapped piece: the fit's pieces with a cut-out,
+  /// starting at that one.
+  Widget? _shopSheet() {
+    final at = _shopAt;
+    if (at == null || at >= _spots.length) return null;
+    final pieces = [
+      for (final p in widget.outfit.pieces)
+        if (p.image != null && p.image!.isNotEmpty) p,
+    ];
+    if (pieces.isEmpty) return null;
+    return FitPiecesSheet(
+      key: ValueKey('shop-${widget.outfit.id}'),
+      pieces: pieces,
+      initial: pieces.indexOf(_spots[at].piece),
+      onClose: _closeShop,
+    );
   }
 
   void _doubleTapLike() {
@@ -410,153 +422,145 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final bg = _bg ?? AppColors.base;
     final light = collage && bg.computeLuminance() > 0.45;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: light
-          ? const SystemUiOverlayStyle(
-              statusBarColor: Colors.transparent,
-              statusBarIconBrightness: Brightness.dark,
-              statusBarBrightness: Brightness.light,
-              systemNavigationBarColor: Colors.transparent,
-              systemNavigationBarIconBrightness: Brightness.dark,
-            )
-          : const SystemUiOverlayStyle(
-              statusBarColor: Colors.transparent,
-              statusBarIconBrightness: Brightness.light,
-              statusBarBrightness: Brightness.dark,
-              systemNavigationBarColor: Color(0xFF0E1018),
-              systemNavigationBarIconBrightness: Brightness.light,
-            ),
-      child: GestureDetector(
-        onDoubleTap: _doubleTapLike,
-        // Tapping the picture closes open details (and costs nothing otherwise).
-        onTap: _expanded ? _toggle : null,
-        behavior: HitTestBehavior.opaque,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (collage)
-              AnimatedContainer(
-                duration: Motion.dur(context, Motion.content),
-                color: bg,
+    return SlideUpSheet(
+      sheet: _shopSheet(),
+      onClose: _closeShop,
+      heightFactor: 0.6,
+      bottomInset: pad.bottom,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: light
+            ? const SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.dark,
+                statusBarBrightness: Brightness.light,
+                systemNavigationBarColor: Colors.transparent,
+                systemNavigationBarIconBrightness: Brightness.dark,
               )
-            else ...[
-              FitHero(
-                ootdId: outfit.id,
-                radius: 28,
-                child: SizedBox.expand(
-                  child: ColoredBox(
-                    color: AppColors.base,
-                    child: DripImage(
-                      outfit.image,
-                      alignment: Alignment.topCenter,
-                    ),
-                  ),
-                ),
+            : const SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.light,
+                statusBarBrightness: Brightness.dark,
+                systemNavigationBarColor: Color(0xFF0E1018),
+                systemNavigationBarIconBrightness: Brightness.light,
               ),
-              // Top scrim keeps the chrome legible on bright photos.
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 150,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Color(0x99000000), Color(0x00000000)],
+        child: GestureDetector(
+          onDoubleTap: _doubleTapLike,
+          // Tapping the picture closes open details (and costs nothing otherwise).
+          onTap: _expanded ? _toggle : null,
+          behavior: HitTestBehavior.opaque,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (collage)
+                AnimatedContainer(
+                  duration: Motion.dur(context, Motion.content),
+                  color: bg,
+                )
+              else ...[
+                FitHero(
+                  ootdId: outfit.id,
+                  radius: 28,
+                  child: SizedBox.expand(
+                    child: ColoredBox(
+                      color: AppColors.base,
+                      child: DripImage(
+                        outfit.image,
+                        alignment: Alignment.topCenter,
                       ),
                     ),
                   ),
                 ),
-              ),
-              // Bottom scrim: just enough for the identity line at rest ...
-              const Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 230,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [Color(0xE60E1018), Color(0x000E1018)],
-                        stops: [0.1, 1],
+                // Top scrim keeps the chrome legible on bright photos.
+                const Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 150,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0x99000000), Color(0x00000000)],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              // ... and a deeper one while the details are open.
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: MediaQuery.sizeOf(context).height * 0.6,
-                child: IgnorePointer(
-                  child: AnimatedOpacity(
-                    opacity: _expanded ? 1 : 0,
-                    duration: fade,
-                    curve: Motion.out,
-                    child: const DecoratedBox(
+                // Bottom scrim: just enough for the identity line at rest ...
+                const Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 230,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,
-                          colors: [Color(0xF50E1018), Color(0x000E1018)],
-                          stops: [0.35, 1],
+                          colors: [Color(0xE60E1018), Color(0x000E1018)],
+                          stops: [0.1, 1],
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
-            Column(
-              children: [
-                SizedBox(height: top),
-                Expanded(
-                  child: _Stage(
-                    outfit: outfit,
-                    expanded: _expanded,
-                    shop: ShopTheLook(
-                      spots: _spots,
-                      open: _shopping,
-                      selected: _shopIndex,
-                      onOpen: _expanded || _spots.isEmpty ? null : _openShop,
-                      onClose: _closeShop,
-                      onSelect: _selectPiece,
-                      child: const SizedBox.shrink(),
+                // ... and a deeper one while the details are open.
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: MediaQuery.sizeOf(context).height * 0.6,
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _expanded ? 1 : 0,
+                      duration: fade,
+                      curve: Motion.out,
+                      child: const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [Color(0xF50E1018), Color(0x000E1018)],
+                            stops: [0.35, 1],
+                          ),
+                        ),
+                      ),
                     ),
-                    onBackground: (c) {
-                      if (mounted && c != _bg) setState(() => _bg = c);
-                    },
                   ),
                 ),
-                AnimatedSwitcher(
-                  duration: fade,
-                  switchInCurve: Motion.out,
-                  child: _shopping
-                      ? ShopPieceBar(
-                          key: const ValueKey('shop-piece-bar'),
-                          piece: _spots[_shopIndex].piece,
-                          bottom: pad.bottom,
-                        )
-                      : _InfoPanel(
-                          outfit: outfit,
-                          expanded: _expanded,
-                          onToggle: _toggle,
-                          bottom: pad.bottom,
-                          ink: light ? AppColors.base : AppColors.cream,
-                        ),
-                ),
               ],
-            ),
-            Center(child: LikeBurst(trigger: _burst, size: 110)),
-          ],
+              Column(
+                children: [
+                  SizedBox(height: top),
+                  Expanded(
+                    child: _Stage(
+                      outfit: outfit,
+                      expanded: _expanded,
+                      shop: ShopTheLook(
+                        spots: _spots,
+                        onOpen: _expanded ? null : _openShop,
+                        child: const SizedBox.shrink(),
+                      ),
+                      onBackground: (c) {
+                        if (mounted && c != _bg) setState(() => _bg = c);
+                      },
+                    ),
+                  ),
+                  _InfoPanel(
+                    outfit: outfit,
+                    expanded: _expanded,
+                    onToggle: _toggle,
+                    bottom: pad.bottom,
+                    ink: light ? AppColors.base : AppColors.cream,
+                  ),
+                ],
+              ),
+              Center(child: LikeBurst(trigger: _burst, size: 110)),
+            ],
+          ),
         ),
       ),
     );
@@ -609,9 +613,9 @@ class _Stage extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.bottomRight,
                 child: IgnorePointer(
-                  ignoring: expanded || shop.open,
+                  ignoring: expanded,
                   child: AnimatedOpacity(
-                    opacity: expanded || shop.open ? 0 : 1,
+                    opacity: expanded ? 0 : 1,
                     duration: Motion.dur(context, Motion.quick),
                     child: _ActionRail(outfit: outfit),
                   ),
@@ -707,11 +711,7 @@ class _FittedCollageState extends State<_FittedCollage> {
             size: size,
             child: ShopTheLook(
               spots: widget.shop.spots,
-              open: widget.shop.open,
-              selected: widget.shop.selected,
               onOpen: widget.shop.onOpen,
-              onClose: widget.shop.onClose,
-              onSelect: widget.shop.onSelect,
               child: FitHero(
                 ootdId: widget.outfit.id,
                 radius: 28,

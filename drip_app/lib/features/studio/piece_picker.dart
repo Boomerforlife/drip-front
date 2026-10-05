@@ -8,8 +8,9 @@ import '../../core/theme/app_text.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/app_button.dart';
-import '../../core/widgets/drip_image.dart';
+import '../../core/widgets/peek_carousel.dart';
 import '../../core/widgets/skeleton.dart';
+import '../../core/widgets/slide_up_sheet.dart';
 import '../../core/widgets/tap.dart';
 import '../../data/models/stylist.dart';
 import '../outfits/shop_sheet.dart';
@@ -31,16 +32,13 @@ class PickerRequest {
 /// with one big piece in the middle and its neighbours peeking either side.
 /// Swipe through them; the details and VISIT / PUT ON CANVAS follow the one in
 /// focus. Pieces come from what the user saved, their wardrobe, or all of
-/// Drip. The host owns the sheet's slide: drags on the header go to
-/// [onDrag] / [onDragEnd].
+/// Drip. It sits in a [SlideUpSheet].
 class PiecePicker extends ConsumerStatefulWidget {
   const PiecePicker({
     super.key,
     required this.request,
     required this.onClose,
     required this.onWear,
-    required this.onDrag,
-    required this.onDragEnd,
   });
 
   final PickerRequest request;
@@ -48,8 +46,6 @@ class PiecePicker extends ConsumerStatefulWidget {
 
   /// Put on (or, if it's worn, take off) [piece] as a [category] piece.
   final void Function(String category, StudioPiece piece) onWear;
-  final ValueChanged<double> onDrag;
-  final ValueChanged<double> onDragEnd;
 
   static const categories = [
     ('TOPS', 'Tops'),
@@ -144,8 +140,6 @@ class _PiecePickerState extends ConsumerState<PiecePicker> {
               ? null
               : '${list.indexOf(focus) + 1} / ${list.length}',
           onClose: widget.onClose,
-          onDrag: widget.onDrag,
-          onDragEnd: widget.onDragEnd,
         ),
         if (!_swapping)
           SizedBox(
@@ -187,13 +181,21 @@ class _PiecePickerState extends ConsumerState<PiecePicker> {
             ),
             data: (list) => list.isEmpty
                 ? _empty(source, label)
-                : _Carousel(
+                : PeekCarousel(
                     key: ValueKey('$_category-${source.name}'),
-                    pieces: list,
+                    count: list.length,
                     initial: list.indexOf(focus!),
-                    worn: worn,
-                    onFocus: (p) => setState(() => _focus = p),
-                    onWear: (p) => widget.onWear(_category, p),
+                    onFocus: (i) => setState(() => _focus = list[i]),
+                    onTapFocused: (i) => widget.onWear(_category, list[i]),
+                    semanticLabel: (i) => worn.contains(list[i].id)
+                        ? '${list[i].name}, on the canvas'
+                        : list[i].name,
+                    itemBuilder: (context, i) => PieceCard(
+                      image: list[i].image,
+                      semanticLabel: list[i].name,
+                      highlighted: worn.contains(list[i].id),
+                      badge: worn.contains(list[i].id) ? 'ON CANVAS' : null,
+                    ),
                   ),
           ),
         ),
@@ -236,215 +238,52 @@ class _PiecePickerState extends ConsumerState<PiecePicker> {
   }
 }
 
-/// Grab handle, close, title and "3 / 24". Dragging here moves the sheet.
+/// Grab handle, close, title and "3 / 24".
 class _Header extends StatelessWidget {
   const _Header({
     required this.title,
     required this.counter,
     required this.onClose,
-    required this.onDrag,
-    required this.onDragEnd,
   });
   final String title;
   final String? counter;
   final VoidCallback onClose;
-  final ValueChanged<double> onDrag;
-  final ValueChanged<double> onDragEnd;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragUpdate: (d) => onDrag(d.delta.dy),
-      onVerticalDragEnd: (d) => onDragEnd(d.velocity.pixelsPerSecond.dy),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 8, 18, 6),
-        child: Column(
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.cream.withValues(alpha: 0.22),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Row(
-              children: [
-                Tap(
-                  onTap: onClose,
-                  semanticLabel: 'Close',
-                  child: const SizedBox(
-                    width: 44,
-                    height: 40,
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 20,
-                      color: AppColors.cream,
-                    ),
-                  ),
-                ),
-                Text(
-                  title,
-                  style: AppText.mono(
-                    11,
-                    weight: FontWeight.w500,
-                    letterSpacing: 1.4,
-                  ),
-                ),
-                const Spacer(),
-                if (counter != null)
-                  Text(
-                    counter!,
-                    style: AppText.mono(10, color: AppColors.muted),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// One big piece in focus, neighbours smaller and faded either side. Tapping
-/// the focused piece puts it on; tapping a neighbour brings it into focus.
-class _Carousel extends StatefulWidget {
-  const _Carousel({
-    super.key,
-    required this.pieces,
-    required this.initial,
-    required this.worn,
-    required this.onFocus,
-    required this.onWear,
-  });
-  final List<StudioPiece> pieces;
-  final int initial;
-  final Set<String> worn;
-  final ValueChanged<StudioPiece> onFocus;
-  final ValueChanged<StudioPiece> onWear;
-
-  @override
-  State<_Carousel> createState() => _CarouselState();
-}
-
-class _CarouselState extends State<_Carousel> {
-  late final _pages = PageController(
-    viewportFraction: 0.62,
-    initialPage: widget.initial.clamp(0, widget.pieces.length - 1),
-  );
-  late int _current = _pages.initialPage;
-
-  @override
-  void dispose() {
-    _pages.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PageView.builder(
-      controller: _pages,
-      itemCount: widget.pieces.length,
-      onPageChanged: (i) {
-        Haptics.tick();
-        _current = i;
-        widget.onFocus(widget.pieces[i]);
-      },
-      itemBuilder: (context, i) {
-        final piece = widget.pieces[i];
-        return AnimatedBuilder(
-          animation: _pages,
-          builder: (context, child) {
-            final page = _pages.hasClients && _pages.position.haveDimensions
-                ? _pages.page ?? _current.toDouble()
-                : _current.toDouble();
-            final d = (page - i).abs().clamp(0.0, 1.0);
-            return Opacity(
-              opacity: 1 - 0.45 * d,
-              child: Transform.scale(scale: 1 - 0.16 * d, child: child),
-            );
-          },
-          child: Tap(
-            onTap: () => i == _current
-                ? widget.onWear(piece)
-                : _pages.animateToPage(
-                    i,
-                    duration: Motion.dur(context, Motion.page),
-                    curve: Motion.out,
-                  ),
-            scale: 0.97,
-            semanticLabel: widget.worn.contains(piece.id)
-                ? '${piece.name}, on the canvas'
-                : piece.name,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-              child: _PieceCard(
-                piece: piece,
-                worn: widget.worn.contains(piece.id),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _PieceCard extends StatelessWidget {
-  const _PieceCard({required this.piece, required this.worn});
-  final StudioPiece piece;
-  final bool worn;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = context.palette.accent;
-    return Container(
-      decoration: BoxDecoration(
-        color: FitLayout.background,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: worn ? accent : Colors.transparent, width: 2),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x40000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        fit: StackFit.expand,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 8, 18, 6),
+      child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(18),
-            child: DripImage(
-              piece.image,
-              fit: BoxFit.contain,
-              backdrop: false,
-              logicalWidth: 260,
-              semanticLabel: piece.name,
-            ),
-          ),
-          if (worn)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  'ON CANVAS',
-                  style: AppText.mono(
-                    8,
-                    color: AppColors.base,
-                    letterSpacing: 1,
+          const SheetHandle(),
+          Row(
+            children: [
+              Tap(
+                onTap: onClose,
+                semanticLabel: 'Close',
+                child: const SizedBox(
+                  width: 44,
+                  height: 40,
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: AppColors.cream,
                   ),
                 ),
               ),
-            ),
+              Text(
+                title,
+                style: AppText.mono(
+                  11,
+                  weight: FontWeight.w500,
+                  letterSpacing: 1.4,
+                ),
+              ),
+              const Spacer(),
+              if (counter != null)
+                Text(counter!, style: AppText.mono(10, color: AppColors.muted)),
+            ],
+          ),
         ],
       ),
     );

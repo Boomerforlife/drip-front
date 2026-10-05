@@ -74,6 +74,20 @@ class WardrobeController extends AsyncNotifier<List<WardrobeItem>> {
     return item;
   }
 
+  /// Saves a catalogue garment into the wardrobe (its cut-out and tags come
+  /// with it), unless it's already there.
+  Future<WardrobeItem> saveGarment(String garmentId) async {
+    final have = state.value ?? await future;
+    for (final i in have) {
+      if (i.garmentId == garmentId) return i;
+    }
+    final item = await ref
+        .read(wardrobeRepositoryProvider)
+        .saveGarment(garmentId);
+    state = AsyncData([item, ...?state.value]);
+    return item;
+  }
+
   /// Corrects an item's category ([slot]) or colour.
   Future<void> retag(String id, {String? slot, String? colour}) async {
     await ref

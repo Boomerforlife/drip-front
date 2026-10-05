@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/motion.dart';
@@ -10,6 +9,7 @@ import '../../core/utils/format.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/controls.dart';
 import '../../core/widgets/overlays.dart';
+import '../../core/widgets/slide_up_sheet.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
 import '../../data/api/api_client.dart';
@@ -34,8 +34,7 @@ class OutfitBuilderScreen extends ConsumerStatefulWidget {
       _OutfitBuilderScreenState();
 }
 
-class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen>
-    with SingleTickerProviderStateMixin {
+class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen> {
   bool _saving = false;
 
   /// The piece being edited (side bar showing), by canvas key.
@@ -44,61 +43,16 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen>
   /// What the picker is open for; null while it's closed.
   PickerRequest? _request;
 
-  /// The picker's slide: 0 down out of sight, 1 fully up.
-  late final _sheet = AnimationController(vsync: this);
-  double _sheetHeight = 1;
-
-  @override
-  void dispose() {
-    _sheet.dispose();
-    super.dispose();
-  }
-
   void _openPicker(String category, {String? swapKey}) {
     Haptics.tick();
     setState(() {
       _request = PickerRequest(category, swapKey: swapKey);
       _selected = null;
     });
-    _settle(1);
   }
 
-  void _closePicker([double velocity = 0]) {
-    if (_request == null) return;
-    _settle(0, velocity).whenComplete(() {
-      // Still closed (not reopened meanwhile): the spring rests within its
-      // tolerance of 0, not exactly on it.
-      if (mounted && _sheet.value < 0.02) {
-        _sheet.value = 0;
-        setState(() => _request = null);
-      }
-    });
-  }
-
-  /// Springs the sheet to [target] (no overshoot), carrying a flick's speed.
-  TickerFuture _settle(double target, [double velocity = 0]) {
-    if (Motion.reduced(context)) {
-      _sheet.value = target;
-      return TickerFuture.complete();
-    }
-    return _sheet.animateWith(
-      SpringSimulation(Motion.snap, _sheet.value, target, velocity)
-        ..tolerance = const Tolerance(distance: 0.001, velocity: 0.01),
-    );
-  }
-
-  void _dragSheet(double dy) {
-    _sheet.stop();
-    _sheet.value = (_sheet.value - dy / _sheetHeight).clamp(0.0, 1.0);
-  }
-
-  void _releaseSheet(double velocity) {
-    final v = -velocity / _sheetHeight;
-    if (velocity > 650 || (_sheet.value < 0.6 && velocity >= 0)) {
-      _closePicker(v);
-    } else {
-      _settle(1, v);
-    }
+  void _closePicker() {
+    if (_request != null) setState(() => _request = null);
   }
 
   void _wear(String category, StudioPiece piece) {
@@ -312,76 +266,18 @@ class _OutfitBuilderScreenState extends ConsumerState<OutfitBuilderScreen>
       ],
     );
 
-    return PopScope(
-      canPop: request == null,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _closePicker();
-      },
-      child: ShellPage(
-        child: LayoutBuilder(
-          builder: (context, box) {
-            _sheetHeight = (box.maxHeight * 0.7).clamp(
-              360.0,
-              box.maxHeight - 40,
-            );
-            return Stack(
-              children: [
-                Positioned.fill(child: page),
-                if (request != null) ...[
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onTap: _closePicker,
-                      behavior: HitTestBehavior.opaque,
-                      child: FadeTransition(
-                        opacity: _sheet,
-                        child: const ColoredBox(color: Color(0x8C05070C)),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: _sheetHeight,
-                    child: AnimatedBuilder(
-                      animation: _sheet,
-                      builder: (context, child) => Transform.translate(
-                        offset: Offset(0, (1 - _sheet.value) * _sheetHeight),
-                        child: child,
-                      ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(28),
-                          ),
-                          border: Border(
-                            top: BorderSide(color: AppColors.elevated),
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x66000000),
-                              blurRadius: 30,
-                              offset: Offset(0, -6),
-                            ),
-                          ],
-                        ),
-                        child: PiecePicker(
-                          key: ValueKey(request),
-                          request: request,
-                          onClose: _closePicker,
-                          onWear: _wear,
-                          onDrag: _dragSheet,
-                          onDragEnd: _releaseSheet,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
+    return ShellPage(
+      child: SlideUpSheet(
+        onClose: _closePicker,
+        sheet: request == null
+            ? null
+            : PiecePicker(
+                key: ValueKey(request),
+                request: request,
+                onClose: _closePicker,
+                onWear: _wear,
+              ),
+        child: page,
       ),
     );
   }

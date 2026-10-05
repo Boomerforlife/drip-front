@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/motion.dart';
 import '../../core/theme/app_colors.dart';
@@ -12,26 +11,14 @@ import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
 import '../../data/providers.dart';
 import '../session/session_controller.dart';
-import 'local_selfie.dart';
 import 'onboarding_data.dart';
 import 'onboarding_steps.dart';
 import 'onboarding_widgets.dart';
 
 /// The onboarding, in the order a stylist would ask: who we're dressing,
 /// what they wear, the colours they reach for, where they're going, the
-/// labels they trust, then (if they like) their face on the ticket. The
-/// name prints the ticket; one tap with Google saves it.
-enum _Step {
-  welcome,
-  dressFor,
-  eras,
-  colours,
-  labels,
-  selfie,
-  name,
-  build,
-  ticket,
-}
+/// labels they trust. The name prints the ticket; one tap with Google saves it.
+enum _Step { welcome, dressFor, eras, colours, labels, name, build, ticket }
 
 /// Steps saved by earlier versions of the flow, mapped onto this one so a
 /// relaunch mid-onboarding still resumes close to where the user was.
@@ -43,13 +30,15 @@ const _legacySteps = {
   // Occasions left onboarding (they're picked in Your style now).
   'occasions': _Step.labels,
   'brands': _Step.labels,
-  'fit': _Step.selfie,
+  'fit': _Step.name,
+  // The selfie left onboarding (it's taken in the Selfie Coordinator now).
+  'selfie': _Step.name,
   'join': _Step.ticket,
 };
 
 /// The whole pre-sign-in journey as one screen. Picks are saved on the device
 /// as they're made (temporary onboarding state) and reach the account only
-/// when the user saves their Drip; the selfie never does (local media). The
+/// when the user saves their Drip. The
 /// step reached is saved too, so a relaunch picks up where the user left off.
 class OnboardingFlow extends ConsumerStatefulWidget {
   const OnboardingFlow({super.key});
@@ -73,7 +62,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   bool _signingIn = false;
 
   /// The camera or gallery is open.
-  bool _picking = false;
 
   /// True for a beat after the step changes: taps landing mid-transition are
   /// dropped so a quick double-tap can't skip a screen.
@@ -227,7 +215,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   Future<void> _primary() async {
     // A tap landing while the step is still changing was meant for the old
     // step's button: drop it, so one action never runs twice.
-    if (_moving || _picking) return;
+    if (_moving) return;
     final picks = ref.read(onboardingProvider);
     switch (_id) {
       case _Step.dressFor when picks.gender == null:
@@ -236,8 +224,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
         return _say('Tap an era, or hit Surprise me');
       case _Step.colours when picks.paletteIds.isEmpty:
         return _say('Tap a colour above to add it');
-      case _Step.selfie when ref.read(localSelfieProvider).value == null:
-        return _pickSelfie(ImageSource.camera);
       case _Step.name when !_named(picks):
         return _say(
           picks.name.trim().isEmpty
@@ -252,23 +238,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   }
 
   static const _settle = Duration(milliseconds: 350);
-
-  /// Camera or gallery. The photo stays on this phone; cancelling changes
-  /// nothing; a source that won't open says what to try instead.
-  Future<void> _pickSelfie(ImageSource source) async {
-    if (_picking || _moving) return;
-    setState(() => _picking = true);
-    try {
-      final picked = await ref.read(localSelfieProvider.notifier).pick(source);
-      if (picked) Haptics.commit();
-    } on SelfieUnavailable catch (e) {
-      if (mounted) _say(e.message);
-    } catch (_) {
-      if (mounted) _say('Couldn’t use that photo. Try another one');
-    } finally {
-      if (mounted) setState(() => _picking = false);
-    }
-  }
 
   Future<void> _google(OnboardingState picks) async {
     // The ticket needs a name; take the user to the field rather than
@@ -291,20 +260,13 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     }
   }
 
-  /// The secondary button: "I already have an account" on the welcome,
-  /// the gallery (or a retake) on the selfie step.
+  /// The secondary button: "I already have an account" on the welcome.
   void _alt() {
     if (_moving) return;
     switch (_id) {
       case _Step.welcome:
         _lock();
         context.push('/signin');
-      case _Step.selfie:
-        _pickSelfie(
-          ref.read(localSelfieProvider).value == null
-              ? ImageSource.gallery
-              : ImageSource.camera,
-        );
       default:
     }
   }
@@ -317,7 +279,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     _Step.eras,
     _Step.colours,
     _Step.labels,
-    _Step.selfie,
     _Step.name,
     _Step.ticket,
   ];
@@ -345,12 +306,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
       'Labels',
       'Tap the ones you wear, then what you usually spend.',
     ),
-    _Step.selfie: (
-      'Optional · stays on this phone',
-      'See yourself in the fit',
-      'Add a selfie and your Drip ticket wears it. It never leaves this '
-          'phone.',
-    ),
   };
 
   static String _n(int n, String one, String many) =>
@@ -362,7 +317,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     _Step.eras => ErasStep(onGlow: (c) => setState(() => _glow = c)),
     _Step.colours => ColoursStep(onGlow: (c) => setState(() => _glow = c)),
     _Step.labels => const LabelsStep(),
-    _Step.selfie => SelfieStep(busy: _picking),
     _Step.name => NameStep(
       controller: _name,
       handle: TicketInfo.handleFor(picks.name),
@@ -378,7 +332,7 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   /// The button names what it will do; while a requirement is unmet it says
   /// what's needed instead, and on an optional step with nothing picked it's
   /// an honest "skip".
-  String _label(OnboardingState p, bool hasSelfie) => switch (_id) {
+  String _label(OnboardingState p) => switch (_id) {
     _Step.welcome => 'GET STARTED →',
     _Step.dressFor when p.gender == null => 'PICK ONE TO CONTINUE',
     _Step.dressFor => 'CONTINUE →',
@@ -389,8 +343,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
     _Step.colours => 'SAVE ${_n(p.paletteIds.length, 'COLOUR', 'COLOURS')} →',
     _Step.labels when p.brands.isEmpty => 'CONTINUE →',
     _Step.labels => 'SAVE ${_n(p.brands.length, 'LABEL', 'LABELS')} →',
-    _Step.selfie when !hasSelfie => 'TAKE A SELFIE',
-    _Step.selfie => 'LOOKS GOOD →',
     _Step.name when !_named(p) => 'ADD YOUR NAME TO CONTINUE',
     _Step.name => 'PRINT MY TICKET →',
     _Step.build => '',
@@ -400,7 +352,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
   @override
   Widget build(BuildContext context) {
     final picks = ref.watch(onboardingProvider);
-    final hasSelfie = ref.watch(localSelfieProvider).value != null;
     final id = _id;
     final header = _headers[id];
     final question = header != null;
@@ -411,7 +362,6 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                 picks.paletteIds.length * 5 +
                 picks.occasions.length * 3 +
                 picks.brands.length * 3 +
-                (hasSelfie ? 6 : 0) +
                 (_step > _Step.labels.index ? 6 : 0))
             .clamp(0, 100);
     final disabled =
@@ -564,9 +514,9 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                     _Footer(
                       dots: _asks.indexOf(id),
                       dotCount: _asks.length,
-                      label: _label(picks, hasSelfie),
+                      label: _label(picks),
                       disabled: disabled,
-                      loading: _signingIn || (_picking && id == _Step.selfie),
+                      loading: _signingIn,
                       onPrimary: _signingIn ? () {} : _primary,
                       // While Google is open, say what to do; otherwise any
                       // note about the button replaces the dots above it.
@@ -578,18 +528,9 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
                               : null),
                       altLabel: switch (id) {
                         _Step.welcome => 'I ALREADY HAVE AN ACCOUNT',
-                        _Step.selfie when !hasSelfie => 'CHOOSE FROM GALLERY',
-                        _Step.selfie => 'RETAKE',
                         _ => null,
                       },
                       onAlt: _alt,
-                      // Skipping the selfie is always there, but quiet.
-                      skipLabel: id == _Step.selfie && !hasSelfie
-                          ? 'Skip for now'
-                          : null,
-                      onSkip: () {
-                        if (!_moving && !_picking) _go(_step + 1);
-                      },
                     ),
                 ],
               ),
@@ -736,8 +677,6 @@ class _Footer extends StatelessWidget {
     required this.onAlt,
     this.message,
     this.altLabel,
-    this.skipLabel,
-    this.onSkip,
   });
 
   /// Index of the current dot, or -1 to hide the row (the welcome step).
@@ -753,11 +692,6 @@ class _Footer extends StatelessWidget {
   /// It takes the dots' place, right where the eye already is.
   final String? message;
   final String? altLabel;
-
-  /// A quiet way past an optional step whose main button does something
-  /// (the selfie): full-size to tap, light to look at.
-  final String? skipLabel;
-  final VoidCallback? onSkip;
 
   @override
   Widget build(BuildContext context) {
@@ -903,23 +837,6 @@ class _Footer extends StatelessWidget {
               ),
             ),
           ],
-          if (skipLabel != null)
-            Tap(
-              onTap: onSkip,
-              semanticLabel: skipLabel,
-              child: Container(
-                height: 44,
-                alignment: Alignment.center,
-                child: Text(
-                  skipLabel!.toUpperCase(),
-                  style: AppText.mono(
-                    11,
-                    color: AppColors.muted,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

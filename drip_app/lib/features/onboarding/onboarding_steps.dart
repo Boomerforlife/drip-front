@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,11 +12,9 @@ import '../../core/theme/app_text.dart';
 import '../../core/utils/format.dart';
 import '../../core/widgets/brand.dart';
 import '../../core/widgets/drip_image.dart';
-import '../../core/widgets/tap.dart';
 import '../home/occasion_card.dart';
 import '../home/occasions.dart';
 import '../session/session_controller.dart';
-import 'local_selfie.dart';
 import 'onboarding_data.dart';
 import 'onboarding_ticket.dart';
 import 'onboarding_widgets.dart';
@@ -1604,201 +1601,6 @@ class BudgetPicker extends ConsumerWidget {
   }
 }
 
-// ────────────────────────────────────────────────────────────────── selfie
-
-/// "See yourself in the fit": the ticket's photo slot. Camera and gallery
-/// are the footer's buttons; this shows the slot, empty or filled, and the
-/// one promise that matters: it stays on this phone.
-class SelfieStep extends ConsumerWidget {
-  const SelfieStep({super.key, this.busy = false});
-
-  /// The camera or gallery is open.
-  final bool busy;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final photo = ref.watch(localSelfieProvider).value;
-    const paper = AppColors.cream;
-    const ink = AppColors.base;
-    // The slot gives way on short phones, so the buttons below never have
-    // to fight it for room.
-    final width = ((MediaQuery.sizeOf(context).height - 600) * 0.75).clamp(
-      150.0,
-      240.0,
-    );
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Enter(
-          dy: 18,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: width),
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-                decoration: BoxDecoration(
-                  color: paper,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x66000000),
-                      blurRadius: 36,
-                      spreadRadius: -10,
-                      offset: Offset(0, 20),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 3 / 4,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: AnimatedSwitcher(
-                              duration: Motion.dur(context, Motion.content),
-                              // The photo fills the slot, cropped, never
-                              // letterboxed.
-                              layoutBuilder: (current, previous) => Stack(
-                                fit: StackFit.expand,
-                                children: [...previous, ?current],
-                              ),
-                              child: photo == null
-                                  ? const _EmptySlot(key: ValueKey('empty'))
-                                  : Image.memory(
-                                      photo,
-                                      key: ValueKey(photo.length),
-                                      fit: BoxFit.cover,
-                                      gaplessPlayback: true,
-                                    ),
-                            ),
-                          ),
-                          if (busy)
-                            const ColoredBox(
-                              color: Color(0x660E1018),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.cream,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (photo != null && !busy)
-                            Positioned(
-                              top: 0,
-                              right: 0,
-                              child: Tap(
-                                onTap: () => ref
-                                    .read(localSelfieProvider.notifier)
-                                    .remove(),
-                                semanticLabel: 'Remove the photo',
-                                child: Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Container(
-                                    width: 28,
-                                    height: 28,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: ink.withValues(alpha: 0.7),
-                                    ),
-                                    child: Text(
-                                      '×',
-                                      style: AppText.manrope(16),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    // Scales with the slot rather than overflowing it.
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'HOLDER PHOTO',
-                            style: AppText.mono(
-                              9,
-                              color: const Color(0xFF5B5346),
-                              letterSpacing: 2,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'THIS PHONE ONLY',
-                            style: AppText.mono(
-                              9,
-                              color: const Color(0xFFC41818),
-                              letterSpacing: 1.5,
-                              weight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'Never uploaded. Remove it any time.',
-          textAlign: TextAlign.center,
-          style: AppText.mono(11, color: AppColors.muted),
-        ),
-      ],
-    );
-  }
-}
-
-class _EmptySlot extends StatelessWidget {
-  const _EmptySlot({super.key});
-
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: const Color(0xFFD9CFB6),
-    child: DashedBorder(
-      radius: 14,
-      color: AppColors.base.withValues(alpha: 0.35),
-      width: 1.5,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.photo_camera_outlined,
-              size: 30,
-              color: AppColors.base.withValues(alpha: 0.6),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'YOUR FACE HERE',
-              style: AppText.mono(
-                10,
-                color: AppColors.base.withValues(alpha: 0.7),
-                letterSpacing: 2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 // ───────────────────────────────────────────────────────────────────── fit
 
 class FitStep extends ConsumerWidget {
@@ -1907,11 +1709,8 @@ class _FitRow extends StatelessWidget {
 /// it's typed, so the name visibly lands on the pass; on the join step it
 /// carries the access number.
 class _PassChip extends StatelessWidget {
-  const _PassChip(this.detail, {this.placeholder = false, this.photo});
+  const _PassChip(this.detail, {this.placeholder = false});
   final String detail;
-
-  /// The onboarding selfie (local), as a small round face on the pass.
-  final Uint8List? photo;
 
   /// Nothing typed yet: the slot shows what goes there, quietly.
   final bool placeholder;
@@ -1930,18 +1729,6 @@ class _PassChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (photo != null) ...[
-              ClipOval(
-                child: Image.memory(
-                  photo!,
-                  width: 22,
-                  height: 22,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                ),
-              ),
-              const SizedBox(width: 10),
-            ],
             Text('DRIP LIST PASS', style: AppText.fredoka(14)),
             const SizedBox(width: 10),
             Flexible(
@@ -1984,7 +1771,6 @@ class NameStep extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final photo = ref.watch(localSelfieProvider).value;
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1998,7 +1784,6 @@ class NameStep extends ConsumerWidget {
               return _PassChip(
                 name.isEmpty ? 'YOUR NAME' : name.toUpperCase(),
                 placeholder: name.isEmpty,
-                photo: photo,
               );
             },
           ),
@@ -2157,11 +1942,7 @@ class BuildStep extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 20),
-        DripTicket(
-          info: info,
-          progress: progress / 100,
-          photo: ref.watch(localSelfieProvider).value,
-        ),
+        DripTicket(info: info, progress: progress / 100),
       ],
     );
   }
@@ -2232,11 +2013,7 @@ class _TicketStepState extends ConsumerState<TicketStep> {
           ..setEntry(3, 2, 0.0011)
           ..rotateX(_tx * math.pi / 180)
           ..rotateY(_ty * math.pi / 180),
-        child: DripTicket(
-          info: info,
-          entrance: !widget.printed,
-          photo: ref.watch(localSelfieProvider).value,
-        ),
+        child: DripTicket(info: info, entrance: !widget.printed),
       ),
     );
 

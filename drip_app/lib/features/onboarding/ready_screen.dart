@@ -13,7 +13,6 @@ import '../../core/widgets/overlays.dart';
 import '../../data/providers.dart';
 import '../home/feed_controller.dart';
 import '../session/session_controller.dart';
-import 'local_selfie.dart';
 import 'onboarding_ticket.dart';
 import 'onboarding_widgets.dart';
 
@@ -187,10 +186,7 @@ class _ReadyScreenState extends ConsumerState<ReadyScreen> {
                                     MediaQuery.sizeOf(context).width - 48,
                                   ),
                                 ),
-                                child: DripTicket(
-                                  info: info,
-                                  photo: ref.watch(localSelfieProvider).value,
-                                ),
+                                child: DripTicket(info: info),
                               ),
                             ),
                           ),

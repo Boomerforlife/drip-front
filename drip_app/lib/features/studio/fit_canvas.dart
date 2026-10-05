@@ -45,6 +45,10 @@ class FitCanvas extends StatefulWidget {
     this.onSlotTap,
     this.onMoveStart,
     this.onMove,
+    this.onAdd,
+    this.onBackgroundTap,
+    this.onSwap,
+    this.onRemove,
     this.compact = false,
     this.radius = 22,
   });
@@ -62,8 +66,20 @@ class FitCanvas extends StatefulWidget {
   /// The key being edited (ringed on the canvas).
   final String? selected;
 
-  /// A piece or an empty box was tapped: its key.
+  /// A piece (or, without [onAdd], an empty box) was tapped: its key.
   final ValueChanged<String>? onSlotTap;
+
+  /// An empty "+" box was tapped: the Studio category to add. With this set,
+  /// the canvas also offers a "+ EXTRAS" box while accessories can be added.
+  final ValueChanged<String>? onAdd;
+
+  /// The canvas itself (no piece) was tapped.
+  final VoidCallback? onBackgroundTap;
+
+  /// From the [selected] piece's side bar: swap it for another, or take it
+  /// off. The bar's slider resizes it through [onMoveStart] / [onMove].
+  final ValueChanged<String>? onSwap;
+  final ValueChanged<String>? onRemove;
 
   /// A drag or pinch began on a piece.
   final ValueChanged<String>? onMoveStart;
@@ -171,10 +187,9 @@ class _FitCanvasState extends State<FitCanvas> {
                 f.height * size.height,
               );
 
-              // Where a piece's visible garment sits, in canvas pixels.
-              Rect garmentRect(String key) {
-                final moved = w.placed[key];
-                if (moved != null) return px(moved);
+              // Where the layout puts a piece's visible garment, in canvas
+              // pixels (ignoring any move).
+              Rect layoutRect(String key) {
                 final slot = plan.placed[key];
                 final boxPx = px(
                   slot == null
@@ -190,22 +205,47 @@ class _FitCanvasState extends State<FitCanvas> {
                 );
               }
 
+              // Where a piece's visible garment sits, in canvas pixels.
+              Rect garmentRect(String key) {
+                final moved = w.placed[key];
+                return moved != null ? px(moved) : layoutRect(key);
+              }
+
+              final add = w.onAdd ?? w.onSlotTap;
+              // One "+ EXTRAS" box in the layout's first free accessory spot.
+              final extra = w.onAdd == null || w.compact
+                  ? null
+                  : _freeAccessorySlot(plan, w.worn);
+              final selected = w.selected;
+              final editing =
+                  !w.compact &&
+                  w.onMove != null &&
+                  selected != null &&
+                  w.worn.containsKey(selected);
+
               return Stack(
                 children: [
+                  if (w.onBackgroundTap != null)
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: w.onBackgroundTap,
+                      ),
+                    ),
                   if (!w.compact)
-                    for (final slot in plan.missing)
+                    for (final slot in [...plan.missing, ?extra])
                       _layoutBox(
                         key: ValueKey('empty-${slot.slot}'),
                         rect: slot.rectIn(size),
                         child: _AddOutline(
-                          label: _slotLabel(slot.slot),
+                          label: slot == extra
+                              ? 'EXTRAS'
+                              : _slotLabel(slot.slot),
                           selected:
                               w.selected == categoryForLayoutSlot(slot.slot),
-                          onTap: w.onSlotTap == null
+                          onTap: add == null
                               ? null
-                              : () => w.onSlotTap!(
-                                  categoryForLayoutSlot(slot.slot),
-                                ),
+                              : () => add(categoryForLayoutSlot(slot.slot)),
                         ),
                       ),
                   for (final key in order)
@@ -220,6 +260,29 @@ class _FitCanvasState extends State<FitCanvas> {
                         selected: !w.compact && w.selected == key,
                         shadow: !w.compact,
                       ),
+                    ),
+                  if (editing)
+                    _ResizeBar(
+                      key: ValueKey('resize-$selected'),
+                      canvas: size,
+                      rect: garmentRect(selected),
+                      base: layoutRect(selected),
+                      onStart: () => w.onMoveStart?.call(selected),
+                      onResize: (r) => w.onMove!(
+                        selected,
+                        Rect.fromLTWH(
+                          r.left / size.width,
+                          r.top / size.height,
+                          r.width / size.width,
+                          r.height / size.height,
+                        ),
+                      ),
+                      onSwap: w.onSwap == null
+                          ? null
+                          : () => w.onSwap!(selected),
+                      onRemove: w.onRemove == null
+                          ? null
+                          : () => w.onRemove!(selected),
                     ),
                 ],
               );
@@ -286,6 +349,21 @@ class _FitCanvasState extends State<FitCanvas> {
       height: rect.height,
       child: body,
     );
+  }
+
+  /// The layout's first empty accessory spot, while one more fits.
+  static LayoutSlot? _freeAccessorySlot(
+    LayoutPlan plan,
+    Map<String, StudioPiece> worn,
+  ) {
+    if (worn.keys.where(isAccessoryKey).length >= maxStudioAccessories) {
+      return null;
+    }
+    final used = {for (final s in plan.placed.values) s.slot};
+    for (final s in plan.layout.slots) {
+      if (s.optional && !used.contains(s.slot)) return s;
+    }
+    return null;
   }
 
   static String _slotLabel(String slot) => switch (slot) {
@@ -371,6 +449,176 @@ class _MovableState extends State<_Movable> {
         button: true,
         label: 'Piece on the canvas. Drag to move, pinch to resize.',
         child: widget.child,
+      ),
+    );
+  }
+}
+
+/// The selected piece's side bar: swap, take off, and a slider that grows or
+/// shrinks it around its centre (relative to its size in the layout). It sits
+/// on the side of the canvas away from the piece, so it never covers it.
+class _ResizeBar extends StatelessWidget {
+  const _ResizeBar({
+    super.key,
+    required this.canvas,
+    required this.rect,
+    required this.base,
+    required this.onStart,
+    required this.onResize,
+    this.onSwap,
+    this.onRemove,
+  });
+
+  final Size canvas;
+
+  /// The piece now and in the layout, in canvas pixels.
+  final Rect rect;
+  final Rect base;
+  final VoidCallback onStart;
+  final ValueChanged<Rect> onResize;
+  final VoidCallback? onSwap;
+  final VoidCallback? onRemove;
+
+  static const _ink = Color(0xFF0E1018);
+
+  @override
+  Widget build(BuildContext context) {
+    // Scale against the layout size: at least 24px on the short side, never
+    // past the canvas.
+    final min = math.max(0.3, 24 / math.min(base.width, base.height));
+    final max = math.max(
+      min + 0.1,
+      math.min(
+        2.5,
+        math.min(canvas.width / base.width, canvas.height / base.height),
+      ),
+    );
+    final value = (rect.width / base.width).clamp(min, max).toDouble();
+    final onLeft = rect.center.dx > canvas.width * 0.55;
+    final height = math.min(canvas.height * 0.52, 260.0);
+
+    void resize(double scale) {
+      final w = math.min(base.width * scale, canvas.width);
+      final h = math.min(base.height * scale, canvas.height);
+      final c = rect.center;
+      onResize(
+        Rect.fromLTWH(
+          (c.dx - w / 2).clamp(0.0, canvas.width - w),
+          (c.dy - h / 2).clamp(0.0, canvas.height - h),
+          w,
+          h,
+        ),
+      );
+    }
+
+    Widget action(IconData icon, String label, VoidCallback? onTap, Color c) =>
+        Tap(
+          onTap: onTap,
+          scale: 0.9,
+          semanticLabel: label,
+          child: SizedBox(
+            width: 44,
+            height: 40,
+            child: Icon(icon, size: 19, color: c),
+          ),
+        );
+
+    final bar = Container(
+      width: 44,
+      height: height,
+      decoration: BoxDecoration(
+        color: _ink.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          if (onSwap != null)
+            action(
+              Icons.swap_horiz_rounded,
+              'Swap this piece',
+              onSwap,
+              const Color(0xFFF4F4F2),
+            ),
+          if (onRemove != null)
+            action(
+              Icons.delete_outline_rounded,
+              'Take this piece off',
+              onRemove,
+              const Color(0xFFFF6B5E),
+            ),
+          Container(
+            width: 18,
+            height: 1,
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            color: const Color(0x33F4F4F2),
+          ),
+          const Icon(Icons.add_rounded, size: 14, color: Color(0xB3F4F4F2)),
+          Expanded(
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  activeTrackColor: const Color(0xFFF4F4F2),
+                  inactiveTrackColor: const Color(0x40F4F4F2),
+                  thumbColor: const Color(0xFFF4F4F2),
+                  overlayColor: const Color(0x22F4F4F2),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 8,
+                  ),
+                ),
+                child: Slider(
+                  value: value,
+                  min: min,
+                  max: max,
+                  semanticFormatterCallback: (v) => '${(v * 100).round()}%',
+                  onChangeStart: (_) {
+                    Haptics.tick();
+                    onStart();
+                  },
+                  onChanged: resize,
+                ),
+              ),
+            ),
+          ),
+          const Icon(Icons.remove_rounded, size: 14, color: Color(0xB3F4F4F2)),
+          const SizedBox(height: 10),
+        ],
+      ),
+    );
+
+    return Positioned.fill(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: AnimatedAlign(
+          duration: Motion.dur(context, Motion.content),
+          curve: Motion.out,
+          alignment: onLeft ? Alignment.centerLeft : Alignment.centerRight,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: Motion.dur(context, Motion.quick),
+            curve: Motion.out,
+            builder: (context, t, child) => Opacity(
+              opacity: t,
+              child: Transform.translate(
+                offset: Offset((onLeft ? -1 : 1) * 14 * (1 - t), 0),
+                child: child,
+              ),
+            ),
+            child: Semantics(
+              container: true,
+              label: 'Resize the piece',
+              child: bar,
+            ),
+          ),
+        ),
       ),
     );
   }

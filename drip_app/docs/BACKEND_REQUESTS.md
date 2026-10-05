@@ -1,10 +1,81 @@
-# Backend requests from the app (2026-10-03)
+# Backend requests from the app
 
-From the Flutter session, for the backend session. Two changes the app needs for v1, plus two
-small nice-to-haves. Each says what the app does today without it, so nothing is blocked. The
-schema change in #1 needs founder approval (STATUS.md rule for data-model changes).
+From the Flutter session, for the backend session. Newest first. Each request says what the app
+does today without it, so nothing is blocked.
 
-## 1. Studio fits: several accessories, and where each piece sits
+## 2026-10-05: shop the look (Scroll) and the Studio piece picker
+
+**Context.** Tapping a garment in a Scroll collage now opens a sheet with the fit's pieces. Each
+piece has BUY, **+ STUDIO** (puts it on the Studio canvas) and **+ WARDROBE**
+(`POST /wardrobe/items { garmentId }`). The Studio's new piece picker has a **Saved** tab and a
+VISIT button. Branch `feat/studio-picker` in drip-front.
+
+### 1. A garment id on `Outfit.pieces` (needed; tiny, no schema change)
+
+**Why.** + WARDROBE and + STUDIO need the piece's garment id, and `OutfitPiece` (in
+`src/domain/outfit.ts`) doesn't carry one.
+
+**What the app does today.** It looks the piece up with `GET /studio/pieces?slot=&subcategory=`
+and matches by cut-out URL, then by title. That endpoint returns only the newest 50 per slot, so
+older garments aren't found, and the user sees "This piece isn't in the Drip catalogue yet".
+
+**Short v1.** Add `id` (the `garments.id`) to `OutfitPiece`. `loadOutfits` already selects
+`fit_items → garment`; add `id` to that select and to the mapped piece. The app reads `id` (or
+`garmentId`) and stops matching once it's there.
+
+```ts
+export interface OutfitPiece {
+  id: string | null; // garments.id: for POST /wardrobe/items and Studio fits
+  name: string | null;
+  …
+}
+```
+
+### 2. `buyUrl` on `StudioPiece` (nice to have; no schema change)
+
+**Why.** The Studio picker's VISIT button needs the store page. `garments.buy_url` exists, but
+`StudioPiece` doesn't return it.
+
+**What the app does today.** It shows VISIT only for pieces it has seen in the user's saved or
+liked fits (it takes their `buyUrl` from those).
+
+**Short v1.** Add `buy_url` to `GARMENT_COLS` in `src/api/user-fits.ts` and
+`buyUrl: g.buy_url ?? null` to `garmentPiece()`. Wardrobe pieces stay `null`.
+
+### 3. The user's saved pieces for the Studio picker (nice to have)
+
+**Why.** The picker's **Saved** tab shows the catalogue pieces from fits the user saved or liked.
+
+**What the app does today.** It reads `GET /studio` (saved and liked fits), then fetches
+`/studio/pieces` for the slot and keeps the pieces that match by cut-out or title. It's capped by
+the same 50-newest limit.
+
+**Short v1.** `GET /studio/pieces?slot=&source=saved`: the published garments in that slot that
+appear in the caller's `saved_fits` or liked fits, newest save first, as `StudioPiece[]`. Once
+it's there, the app calls it for the Saved tab.
+
+### 4. Paging on `GET /studio/pieces` (later)
+
+The catalogue tab stops at the newest 50 per slot (`.limit(50)`). A `cursor` (the same
+offset-style one as `/scroll`) would let the picker keep loading as the user swipes. Not urgent at
+today's catalogue size.
+
+### 5. Material (later, only if the pipeline has it)
+
+The founder wants the piece's material in the sheet ("cotton", "denim"). `garments` has no
+material column, so this depends on the catalog pipeline or the discovery products
+(`DripProduct.material`) extracting it. If it lands, add `material: string | null` to
+`OutfitPiece` and `StudioPiece`; the app has a line for it.
+
+---
+
+## 2026-10-03: Studio canvas and occasion feeds (done)
+
+Shipped in `feat/app-requests-1003` with migration `…0012`. The app uses it: every accessory, box
+and z saved on user fits; `GET /scroll?occasion=`; `home: true` occasions; `brand` on Studio
+pieces. The original write-up follows for reference.
+
+### 1. Studio fits: several accessories, and where each piece sits
 
 **Why.** The Studio canvas now lets users place pieces anywhere and resize them, and wear up to
 6 accessories (bag, eyewear, watch, jewellery…). `user_fit_items` has `primary key (user_fit_id,
@@ -15,7 +86,7 @@ placement.
 and every piece's position on the phone (SharedPreferences, keyed by fit id). Extras don't count
 toward the drip rate and don't sync across devices.
 
-### Short v1 solution (one migration, small API change)
+#### Short v1 solution (one migration, small API change)
 
 Migration `…0012_user_fit_canvas.sql`:
 
@@ -68,7 +139,7 @@ them on the phone. Fits saved before then keep working (no boxes = layout positi
 RLS checks on the extra pieces (the publish gate) and would store image URLs that expire, so the
 item-row change above is worth the extra hour.
 
-## 2. `GET /scroll?occasion=<id>`
+### 2. `GET /scroll?occasion=<id>`
 
 **Why.** Home now has "Shop by occasion" cards; tapping one opens the Scroll on fits for that
 occasion.
@@ -103,12 +174,12 @@ now; adjust the bands freely):
 ids. The other nine are new. Taylor's occasion picker lists every `OCCASIONS` label, so if the Home
 ones shouldn't all show up there, add a flag such as `home: true` rather than a second list.
 
-## 3. Nice to have (not blocking)
+### 3. Nice to have (not blocking)
 
 - **A display title on `Outfit`.** The app shows `colourStory` as the title ("blue · brown · black
   · grey"), which reads like a tag list. Even a generated "Navy shirt + cargo" would be better.
 - **`brand` on Outfit pieces and Studio pieces.** The cards and Fit Analysis have a slot for it.
 
-## Not needed for v1
+### Not needed for v1
 
 Search, Discover, the wardrobe rotation flag and the social layer stay "after beta" in the app.

@@ -290,3 +290,6 @@ String categoryForLayoutSlot(String slot) => switch (slot) {
 String baseCategory(String key) => key.split(':').first;
 
 bool isAccessoryKey(String key) => baseCategory(key) == 'ACCESSORIES';
+
+/// Most accessories one fit can carry (the API's limit too).
+const maxStudioAccessories = 6;

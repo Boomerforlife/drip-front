@@ -90,6 +90,46 @@ final studioPiecesProvider =
           .pieces(key.$1, fromWardrobe: key.$2),
     );
 
+/// Catalogue pieces in [category] that appear in fits the user saved or
+/// liked: their "saved products". Matched by cut-out (the same CDN image) or
+/// by name, since a fit's pieces don't carry the garment id a user fit needs.
+final savedStudioPiecesProvider =
+    FutureProvider.family<List<StudioPiece>, String>((ref, category) async {
+      final library = await ref.watch(libraryProvider.future);
+      final images = <String>{};
+      final names = <String>{};
+      for (final fit in [...library.saved, ...library.liked]) {
+        for (final p in fit.pieces) {
+          if (p.image != null && p.image!.isNotEmpty) images.add(p.image!);
+          if (p.name.isNotEmpty) names.add(p.name.toLowerCase());
+        }
+      }
+      if (images.isEmpty && names.isEmpty) return const [];
+      final all = await ref.watch(
+        studioPiecesProvider((category, false)).future,
+      );
+      return [
+        for (final p in all)
+          if (images.contains(p.image) || names.contains(p.name.toLowerCase()))
+            p,
+      ];
+    });
+
+/// Store pages for pieces seen in the user's saved and liked fits, by cut-out
+/// and by lower-cased name: VISIT in the piece picker.
+final pieceLinksProvider = Provider<Map<String, String>>((ref) {
+  final library = ref.watch(libraryProvider).value;
+  if (library == null) return const {};
+  return {
+    for (final fit in [...library.saved, ...library.liked])
+      for (final p in fit.pieces)
+        if (p.buyUrl != null && p.buyUrl!.isNotEmpty) ...{
+          if (p.image != null && p.image!.isNotEmpty) p.image!: p.buyUrl!,
+          p.name.toLowerCase(): p.buyUrl!,
+        },
+  };
+});
+
 class StudioController extends Notifier<StudioState> {
   final _rng = Random();
 
@@ -148,8 +188,8 @@ class StudioController extends Notifier<StudioState> {
     return note;
   }
 
-  /// Most accessories one fit can carry (one per accessory spot).
-  static const maxAccessories = 6;
+  /// Most accessories one fit can carry.
+  static const maxAccessories = maxStudioAccessories;
 
   /// Accessories stack up: picking one adds it (under the next free key),
   /// picking a worn one takes it off.
@@ -175,6 +215,21 @@ class StudioController extends Notifier<StudioState> {
       dirty: true,
     );
     return null;
+  }
+
+  /// Puts [piece] in place of the one under [key] (one UNDO step). It takes
+  /// the layout's spot for its kind, since its shape differs from the old one.
+  void swap(String key, StudioPiece piece) {
+    if (!state.worn.containsKey(key) || state.worn[key]!.id == piece.id) {
+      return;
+    }
+    state = state.copyWith(
+      worn: {...state.worn, key: piece},
+      placed: {...state.placed}..remove(key),
+      stack: _toFront(state.stack, key),
+      history: _pushed,
+      dirty: true,
+    );
   }
 
   /// Takes the piece in [category] off the canvas.

@@ -17,6 +17,7 @@ import '../../routing/main_shell.dart';
 import '../outfits/outfit_controller.dart';
 import '../photoshoot/photoshoot_controller.dart';
 import '../social/social_controller.dart';
+import 'profile_edit.dart';
 import 'profile_widgets.dart';
 
 class MyProfileScreen extends ConsumerStatefulWidget {
@@ -39,52 +40,52 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
           String? route, {
           String? badge,
         }) => Tap(
-              onTap: () {
-                Navigator.of(ctx).pop();
-                if (route == null) {
-                  showAfterBeta(context, label);
-                } else if (route == '/studio') {
-                  context.go(route); // a tab now
-                } else {
-                  context.push(route);
-                }
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: AppColors.elevated)),
+          onTap: () {
+            Navigator.of(ctx).pop();
+            if (route == null) {
+              showAfterBeta(context, label);
+            } else if (route == '/studio') {
+              context.go(route); // a tab now
+            } else {
+              context.push(route);
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.elevated)),
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 28,
+                  child: Text(glyph, style: AppText.inter(16)),
                 ),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 28,
-                      child: Text(glyph, style: AppText.inter(16)),
-                    ),
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: AppText.manrope(14, weight: FontWeight.w500),
-                      ),
-                    ),
-                    if (badge != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          badge,
-                          style: AppText.mono(9, color: AppColors.base),
-                        ),
-                      ),
-                  ],
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppText.manrope(14, weight: FontWeight.w500),
+                  ),
                 ),
-              ),
-            );
+                if (badge != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      badge,
+                      style: AppText.mono(9, color: AppColors.base),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
         return SheetContent(
           title: 'MENU',
           children: [
@@ -123,7 +124,8 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
                 user: me,
                 tab: _tab,
                 onTab: (i) => setState(() => _tab = i),
-                onEdit: () => showAfterBeta(context, 'Editing your profile'),
+                onEdit: () => showEditProfileSheet(context, ref),
+                onAvatarTap: () => showProfilePhotoSheet(context, ref),
               ),
             ),
           ),
@@ -139,11 +141,13 @@ class _Body extends ConsumerWidget {
     required this.tab,
     required this.onTab,
     required this.onEdit,
+    required this.onAvatarTap,
   });
   final DripUser user;
   final int tab;
   final ValueChanged<int> onTab;
   final VoidCallback onEdit;
+  final VoidCallback onAvatarTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -157,7 +161,10 @@ class _Body extends ConsumerWidget {
     };
     final emptyCopy = switch (tab) {
       0 => ('NO FITS YET', 'Save fits from the Scroll and they land here.'),
-      1 => ('OOTDS AFTER BETA', 'Posting your outfit of the day is coming after beta.'),
+      1 => (
+        'OOTDS AFTER BETA',
+        'Posting your outfit of the day is coming after beta.',
+      ),
       _ => (
         'NO PHOTOS YET',
         'Generate a shoot in the Studio to fill this tab.',
@@ -177,6 +184,7 @@ class _Body extends ConsumerWidget {
                 user: user,
                 ringColor: context.palette.secondary,
                 onEdit: onEdit,
+                onAvatarTap: onAvatarTap,
               ),
               const SizedBox(height: 12),
               ProfileStats(

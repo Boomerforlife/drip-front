@@ -16,6 +16,8 @@ import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
 import '../../data/api/api_client.dart';
 import '../../data/models/settings.dart';
+import '../../data/providers.dart';
+import '../profile/profile_edit.dart';
 import '../../routing/main_shell.dart';
 import '../session/reset_app_state.dart';
 import '../session/session_controller.dart';
@@ -60,6 +62,7 @@ class SettingsScreen extends ConsumerWidget {
     final me = ref.watch(myProfileProvider).value;
     final email = ref.watch(sessionProvider.select((s) => s.user?.email));
     final picks = ref.watch(onboardingProvider);
+    final account = ref.watch(accountProvider).value;
 
     Widget row(
       String label, {
@@ -105,20 +108,56 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: AppColors.cyan,
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: ClipOval(
-                                child: me == null || me.avatar.isEmpty
-                                    ? ColoredBox(color: AppColors.elevated)
-                                    : DripImage(me.avatar),
+                            Tap(
+                              onTap: () => showProfilePhotoSheet(context, ref),
+                              semanticLabel: 'Change your profile photo',
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: 48,
+                                    height: 48,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: AppColors.cyan,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: ClipOval(
+                                      child: me == null || me.avatar.isEmpty
+                                          ? ColoredBox(
+                                              color: AppColors.elevated,
+                                            )
+                                          : DripImage(
+                                              me.avatar,
+                                              logicalWidth: 48,
+                                            ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: Container(
+                                      width: 18,
+                                      height: 18,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.cyan,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: AppColors.surface,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: const Icon(
+                                        Icons.edit_rounded,
+                                        size: 9,
+                                        color: AppColors.base,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 16),
@@ -148,9 +187,19 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ),
                     row(
+                      'Profile Photo',
+                      value: account?.photoUrl == null ? 'Google photo' : 'Set',
+                      onTap: () => showProfilePhotoSheet(context, ref),
+                    ),
+                    row(
+                      'Name',
+                      value: me?.name ?? '',
+                      onTap: () => showDisplayNameSheet(context, ref),
+                    ),
+                    row(
                       'Username',
                       value: me == null ? '' : '@${me.handle}',
-                      onTap: () => showAfterBeta(context, 'Custom usernames'),
+                      onTap: () => showUsernameSheet(context, ref),
                     ),
                     row(
                       'Email',
@@ -169,11 +218,28 @@ class SettingsScreen extends ConsumerWidget {
                     row(
                       'Style, colours & more',
                       value: _styleSummary(picks),
-                      last: true,
                       onTap: () => context.push('/me/style'),
+                    ),
+                    row(
+                      'My selfies',
+                      value: 'On this phone',
+                      last: true,
+                      onTap: () => context.push('/selfies'),
                     ),
                   ],
                 ),
+                if (account?.isAdmin ?? false) ...[
+                  const _Section('ADMIN'),
+                  SettingsGroup(
+                    children: [
+                      row(
+                        'Review imported pieces',
+                        last: true,
+                        onTap: () => context.push('/admin/review'),
+                      ),
+                    ],
+                  ),
+                ],
                 const _Section('03 · PRIVACY'),
                 SettingsGroup(
                   children: [
@@ -301,7 +367,7 @@ class SettingsScreen extends ConsumerWidget {
                             title: 'PRIVACY & TERMS',
                             children: [
                               Text(
-                                'Your saved fits, wardrobe photos, studio fits and Gen renders live on your Drip account. Wardrobe photos, selfies and renders are private to you. You can delete your account, and everything in it, at any time from this screen.',
+                                'Your saved fits, wardrobe photos, studio fits and Gen renders live on your Drip account, and wardrobe photos and renders are private to you. Your selfie never leaves this phone. Your profile photo, name and username are what others see. You can delete your account, and everything in it, at any time from this screen.',
                                 style: AppText.manrope(
                                   13,
                                   color: AppColors.muted,

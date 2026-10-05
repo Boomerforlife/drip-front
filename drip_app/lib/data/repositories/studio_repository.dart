@@ -7,10 +7,12 @@ import '../models/studio.dart';
 
 /// Studio canvas (pieces, the user's own fits) and Gen (photoshoots).
 abstract interface class StudioRepository {
-  /// The swap-pieces carousel for one Studio category (OUTERWEAR, TOPS…).
+  /// The swap-pieces carousel for one Studio category (OUTERWEAR, TOPS…),
+  /// optionally only one [subcategory] ("jeans") of the catalogue.
   Future<List<StudioPiece>> pieces(
     String category, {
     bool fromWardrobe = false,
+    String? subcategory,
   });
 
   /// Creates ([id] null) or replaces a user fit. The server scores it.
@@ -64,12 +66,14 @@ class ApiStudioRepository implements StudioRepository {
   Future<List<StudioPiece>> pieces(
     String category, {
     bool fromWardrobe = false,
+    String? subcategory,
   }) async {
     final json = await _api.get(
       '/studio/pieces',
       query: {
         'slot': StudioSlots.slot(category),
         'source': fromWardrobe ? 'wardrobe' : 'catalog',
+        'subcategory': ?subcategory,
       },
     ) as Map;
     return [
@@ -162,6 +166,7 @@ class MockStudioRepository implements StudioRepository {
   Future<List<StudioPiece>> pieces(
     String category, {
     bool fromWardrobe = false,
+    String? subcategory,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 150));
     return MockContent.studioPieces

@@ -119,6 +119,8 @@ void main() {
     });
 
     testWidgets('back', (t) async {
+      // Saved by an older build on the (removed) selfie step: resumes at
+      // the name, and back goes to the labels.
       await _boot(
         t,
         prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _full},
@@ -137,7 +139,6 @@ void main() {
     );
     const expected = [
       ('name', 'WHAT DO WE\nCALL YOU?'),
-      ('selfie', 'SEE YOURSELF IN THE FIT'),
       ('labels', 'LABELS'),
       ('colours', 'COLOUR THEORY'),
       ('eras', 'YOUR VIBE'),
@@ -228,10 +229,7 @@ void main() {
       t,
       prefs: {'onboarding.step': 'labels', 'onboarding.flow': _basics},
     );
-    for (final (button, next) in [
-      ('CONTINUE →', 'SEE YOURSELF IN THE FIT'),
-      ('SKIP FOR NOW', 'WHAT DO WE\nCALL YOU?'),
-    ]) {
+    for (final (button, next) in [('CONTINUE →', 'WHAT DO WE\nCALL YOU?')]) {
       await t.tap(find.text(button));
       await _settle(t);
       expect(find.text(next), findsOneWidget);
@@ -239,6 +237,7 @@ void main() {
     final p = _c.read(onboardingProvider);
     expect([p.occasions, p.brands], everyElement(isEmpty));
     expect(_c.read(localSelfieProvider).value, isNull);
+    expect(find.text('SEE YOURSELF IN THE FIT'), findsNothing);
   });
 
   group('name', () {
@@ -404,7 +403,7 @@ void main() {
     expect(find.bySemanticsLabel('Minimal'), findsOneWidget);
     expect(find.bySemanticsLabel(RegExp('ACTIVE')), findsNothing);
     expect(find.bySemanticsLabel('LOCK IN 1 VIBE'), findsOneWidget);
-    expect(find.bySemanticsLabel('Screen 2 of 7'), findsOneWidget);
+    expect(find.bySemanticsLabel('Screen 2 of 6'), findsOneWidget);
     // Picking changes the label the reader hears.
     await t.tap(find.text('Minimal'));
     await _settle(t, 300);
@@ -446,7 +445,6 @@ void main() {
     'eras',
     'colours',
     'labels',
-    'selfie',
     'name',
     'ticket',
   ];

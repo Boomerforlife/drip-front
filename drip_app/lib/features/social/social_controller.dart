@@ -2,6 +2,7 @@ import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/mock/mock_content.dart';
+import '../../data/models/account.dart';
 import '../../data/models/user.dart';
 import '../../data/providers.dart';
 import '../../data/repositories/social_repository.dart';
@@ -63,9 +64,10 @@ final userProvider = FutureProvider.family<DripUser?, String>(
   (ref, handle) => ref.watch(socialRepositoryProvider).user(handle),
 );
 
-/// The signed-in user's profile, built from their Google identity and
-/// onboarding picks. There's no profile endpoint beyond `/me` in v1 (no social
-/// layer), so followers are zero and editing waits for after the beta.
+/// The signed-in user's profile: the name, username and photo they set on
+/// their account (`GET /me`), falling back to their Google identity, plus
+/// their onboarding picks. There's no social layer in v1, so followers are
+/// zero.
 class MyProfileController extends AsyncNotifier<DripUser> {
   @override
   Future<DripUser> build() async {
@@ -73,11 +75,19 @@ class MyProfileController extends AsyncNotifier<DripUser> {
     if (user == null) throw StateError('Not signed in');
     final picks = ref.watch(onboardingProvider);
     final saved = ref.watch(libraryProvider).value?.saved ?? const [];
+    // Offline (or no profile yet): the Google identity stands in.
+    Account? account;
+    try {
+      account = await ref.watch(accountProvider.future);
+    } catch (_) {
+      account = null;
+    }
+    final handle = account?.username ?? handleFor(user.email);
     return DripUser(
       id: user.id,
-      name: user.name ?? handleFor(user.email),
-      handle: handleFor(user.email),
-      avatar: user.avatarUrl ?? '',
+      name: account?.displayName ?? user.name ?? handle,
+      handle: handle,
+      avatar: account?.photoUrl ?? user.avatarUrl ?? '',
       styleScore: saved.isEmpty
           ? 0
           : (saved.fold<int>(0, (s, o) => s + o.rate) / saved.length).round(),

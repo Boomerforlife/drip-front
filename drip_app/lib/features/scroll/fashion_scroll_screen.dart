@@ -25,6 +25,7 @@ import '../home/occasions.dart';
 import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
 import '../outfits/shop_sheet.dart';
+import 'shop_the_look.dart';
 
 /// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
 ///
@@ -343,6 +344,11 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   int _burst = 0;
   bool _expanded = false;
 
+  /// Shop the look: the collage's pieces lifted out, with the carousel.
+  bool _shopping = false;
+  int _shopIndex = 0;
+  late List<ShopSpot> _spots = shopSpots(widget.outfit);
+
   /// The collage's background colour, once its picture has decoded.
   Color? _bg;
 
@@ -350,7 +356,28 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   void didUpdateWidget(_ReelPage old) {
     super.didUpdateWidget(old);
     // Leaving a card closes its details.
-    if (old.active && !widget.active) _expanded = false;
+    if (old.active && !widget.active) {
+      _expanded = false;
+      _shopping = false;
+    }
+    if (!identical(old.outfit, widget.outfit)) {
+      _spots = shopSpots(widget.outfit);
+      _shopping = false;
+    }
+  }
+
+  void _openShop(int i) {
+    Haptics.tick();
+    setState(() {
+      _shopping = true;
+      _shopIndex = i;
+    });
+  }
+
+  void _closeShop() => setState(() => _shopping = false);
+
+  void _selectPiece(int i) {
+    if (i != _shopIndex) setState(() => _shopIndex = i);
   }
 
   void _doubleTapLike() {
@@ -495,17 +522,36 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
                   child: _Stage(
                     outfit: outfit,
                     expanded: _expanded,
+                    shop: ShopTheLook(
+                      spots: _spots,
+                      open: _shopping,
+                      selected: _shopIndex,
+                      onOpen: _expanded || _spots.isEmpty ? null : _openShop,
+                      onClose: _closeShop,
+                      onSelect: _selectPiece,
+                      child: const SizedBox.shrink(),
+                    ),
                     onBackground: (c) {
                       if (mounted && c != _bg) setState(() => _bg = c);
                     },
                   ),
                 ),
-                _InfoPanel(
-                  outfit: outfit,
-                  expanded: _expanded,
-                  onToggle: _toggle,
-                  bottom: pad.bottom,
-                  ink: light ? AppColors.base : AppColors.cream,
+                AnimatedSwitcher(
+                  duration: fade,
+                  switchInCurve: Motion.out,
+                  child: _shopping
+                      ? ShopPieceBar(
+                          key: const ValueKey('shop-piece-bar'),
+                          piece: _spots[_shopIndex].piece,
+                          bottom: pad.bottom,
+                        )
+                      : _InfoPanel(
+                          outfit: outfit,
+                          expanded: _expanded,
+                          onToggle: _toggle,
+                          bottom: pad.bottom,
+                          ink: light ? AppColors.base : AppColors.cream,
+                        ),
                 ),
               ],
             ),
@@ -526,10 +572,14 @@ class _Stage extends StatelessWidget {
   const _Stage({
     required this.outfit,
     required this.expanded,
+    required this.shop,
     required this.onBackground,
   });
   final Outfit outfit;
   final bool expanded;
+
+  /// Shop-the-look settings; the collage wraps itself in a copy of it.
+  final ShopTheLook shop;
   final ValueChanged<Color> onBackground;
 
   @override
@@ -542,7 +592,11 @@ class _Stage extends StatelessWidget {
           Positioned.fill(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-              child: _FittedCollage(outfit: outfit, onBackground: onBackground),
+              child: _FittedCollage(
+                outfit: outfit,
+                shop: shop,
+                onBackground: onBackground,
+              ),
             ),
           ),
         Positioned.fill(
@@ -555,9 +609,9 @@ class _Stage extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.bottomRight,
                 child: IgnorePointer(
-                  ignoring: expanded,
+                  ignoring: expanded || shop.open,
                   child: AnimatedOpacity(
-                    opacity: expanded ? 0 : 1,
+                    opacity: expanded || shop.open ? 0 : 1,
                     duration: Motion.dur(context, Motion.quick),
                     child: _ActionRail(outfit: outfit),
                   ),
@@ -576,8 +630,13 @@ class _Stage extends StatelessWidget {
 /// come from the decoded image; the colour goes up to the page so the space
 /// around the collage matches it.
 class _FittedCollage extends StatefulWidget {
-  const _FittedCollage({required this.outfit, required this.onBackground});
+  const _FittedCollage({
+    required this.outfit,
+    required this.shop,
+    required this.onBackground,
+  });
   final Outfit outfit;
+  final ShopTheLook shop;
   final ValueChanged<Color> onBackground;
 
   @override
@@ -646,10 +705,18 @@ class _FittedCollageState extends State<_FittedCollage> {
         return Center(
           child: SizedBox.fromSize(
             size: size,
-            child: FitHero(
-              ootdId: widget.outfit.id,
-              radius: 28,
-              child: DripImage(widget.outfit.image, fit: BoxFit.cover),
+            child: ShopTheLook(
+              spots: widget.shop.spots,
+              open: widget.shop.open,
+              selected: widget.shop.selected,
+              onOpen: widget.shop.onOpen,
+              onClose: widget.shop.onClose,
+              onSelect: widget.shop.onSelect,
+              child: FitHero(
+                ootdId: widget.outfit.id,
+                radius: 28,
+                child: DripImage(widget.outfit.image, fit: BoxFit.cover),
+              ),
             ),
           ),
         );

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -106,7 +105,6 @@ class DripTicket extends StatefulWidget {
     required this.info,
     this.progress = 1,
     this.entrance = false,
-    this.photo,
   });
 
   final TicketInfo info;
@@ -117,9 +115,6 @@ class DripTicket extends StatefulWidget {
   /// A finished ticket shown fresh (not printed in front of the user): the
   /// signature draws and the stamp lands, once.
   final bool entrance;
-
-  /// The holder photo: the onboarding selfie, from this device only.
-  final Uint8List? photo;
 
   @override
   State<DripTicket> createState() => _DripTicketState();
@@ -300,31 +295,9 @@ class _DripTicketState extends State<DripTicket> {
             ),
           ),
           const SizedBox(height: 20),
-          // The holder leads: the name (and face, if they added one) is what
-          // makes the pass yours.
+          // The holder leads: the name is what makes the pass yours.
           Row(
             children: [
-              if (widget.photo != null) ...[
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _ink.withValues(alpha: 0.55),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: ClipOval(
-                    child: Image.memory(
-                      widget.photo!,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

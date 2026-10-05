@@ -1,8 +1,4 @@
-import 'dart:io';
-
 import 'package:drip/app.dart';
-import 'package:drip/core/widgets/tap.dart';
-import 'package:drip/data/providers.dart';
 import 'package:drip/data/repositories/account_repository.dart';
 import 'package:drip/features/home/occasion_card.dart';
 import 'package:drip/features/onboarding/local_selfie.dart';
@@ -19,24 +15,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../support/fakes.dart';
 import '../test_fonts.dart';
 
-/// Records every way the account could have received the selfie.
+/// Records every way the account could have received the selfie (the only
+/// image upload left on the account is the profile photo).
 class _WatchedAccount extends MockAccountRepository {
-  int uploads = 0;
-
-  @override
-  Future<int> uploadAvatar(Uint8List bytes, {required String contentType}) {
-    uploads++;
-    return super.uploadAvatar(bytes, contentType: contentType);
-  }
+  int get uploads => photoUploads;
 }
 
 const _basics =
     '{"gender":"female","moods":["minimal"],"colours":["cream"],'
     '"name":"Taylor"}';
-
-// Real photos, so they decode like a camera's would.
-final _a = File('assets/images/avatar_sofiamae.jpg').readAsBytesSync();
-final _b = File('assets/images/avatar_kenji.jpg').readAsBytesSync();
 
 late ProviderContainer _c;
 
@@ -72,7 +59,7 @@ Future<void> _boot(
           if (next is Uint8List) {
             return XFile.fromData(
               next,
-              path: next == _a ? 'selfie_a.jpg' : 'selfie_b.jpg',
+              path: 'selfie_a.jpg',
             );
           }
           return null;
@@ -97,30 +84,40 @@ void main() {
   setUpAll(loadAppFonts);
 
   group('selfie: local media, never account data', () {
-    testWidgets('taken, shown on the ticket, and never sent anywhere', (
+    testWidgets('onboarding asks for none; an old selfie step resumes at '
+        'the name', (t) async {
+      await _boot(
+        t,
+        prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _basics},
+      );
+      expect(find.text('SEE YOURSELF IN THE FIT'), findsNothing);
+      expect(find.text('WHAT DO WE\nCALL YOU?'), findsOneWidget);
+    });
+
+    testWidgets('the ticket carries no photo, and saving sends none', (
       t,
     ) async {
       final account = _WatchedAccount();
       await _boot(
         t,
         account: account,
-        picks: [_a],
-        prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _basics},
+        prefs: {
+          'onboarding.step': 'name',
+          'onboarding.flow': _basics,
+          // A selfie from the Selfie Coordinator, already on the phone.
+          'media.selfie': 'selfie_a.jpg',
+        },
       );
-      expect(find.text('SEE YOURSELF IN THE FIT'), findsOneWidget);
-      await _tapText(t, 'TAKE A SELFIE');
-      expect(_c.read(localSelfieProvider).value, _a);
-      expect(find.text('LOOKS GOOD →'), findsOneWidget);
-      expect(find.text('RETAKE'), findsOneWidget);
-
-      await _tapText(t, 'LOOKS GOOD →');
       await _tapText(t, 'PRINT MY TICKET →');
       await _settle(t, 4200);
-      // The ticket wears it…
-      final ticket = t.widget<DripTicket>(find.byType(DripTicket));
-      expect(ticket.photo, _a);
-
-      // …and saving the Drip sends the picks, not the photo.
+      expect(find.byType(DripTicket), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(DripTicket),
+          matching: find.byType(Image),
+        ),
+        findsNothing,
+      );
       await _tapText(t, 'SAVE MY DRIP WITH GOOGLE');
       await _settle(t, 1500);
       expect(_c.read(sessionProvider).signedIn, isTrue);
@@ -128,64 +125,6 @@ void main() {
       final me = await account.me();
       expect(me.hasAvatar, isFalse);
       expect(me.onboardingPrefs.keys, isNot(contains('selfie')));
-      expect(
-        me.onboardingPrefs.values.whereType<String>(),
-        isNot(contains(contains('selfie_'))),
-      );
-      // It lives on the device only.
-      expect(
-        _c.read(sharedPreferencesProvider).getString('media.selfie'),
-        'selfie_a.jpg',
-      );
-    });
-
-    testWidgets('cancelling the camera changes nothing', (t) async {
-      await _boot(
-        t,
-        picks: [null],
-        prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _basics},
-      );
-      await _tapText(t, 'TAKE A SELFIE');
-      expect(_c.read(localSelfieProvider).value, isNull);
-      expect(find.text('TAKE A SELFIE'), findsOneWidget);
-      expect(find.text('SEE YOURSELF IN THE FIT'), findsOneWidget);
-    });
-
-    testWidgets('a camera that won’t open says what to try instead', (t) async {
-      await _boot(
-        t,
-        picks: [PlatformException(code: 'camera_access_denied')],
-        prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _basics},
-      );
-      await _tapText(t, 'TAKE A SELFIE');
-      expect(find.textContaining('CAN’T OPEN THE CAMERA'), findsOneWidget);
-      expect(find.textContaining('CHOOSE FROM YOUR GALLERY'), findsOneWidget);
-      // The way out is right there.
-      expect(find.text('CHOOSE FROM GALLERY'), findsOneWidget);
-    });
-
-    testWidgets('retake replaces it; remove forgets it', (t) async {
-      await _boot(
-        t,
-        picks: [_a, _b],
-        prefs: {'onboarding.step': 'selfie', 'onboarding.flow': _basics},
-      );
-      await _tapText(t, 'CHOOSE FROM GALLERY');
-      expect(_c.read(localSelfieProvider).value, _a);
-      await _tapText(t, 'RETAKE');
-      expect(_c.read(localSelfieProvider).value, _b);
-      await t.tap(
-        find.byWidgetPredicate(
-          (w) => w is Tap && w.semanticLabel == 'Remove the photo',
-        ),
-      );
-      await _settle(t);
-      expect(_c.read(localSelfieProvider).value, isNull);
-      expect(
-        _c.read(sharedPreferencesProvider).getString('media.selfie'),
-        isNull,
-      );
-      expect(find.text('TAKE A SELFIE'), findsOneWidget);
     });
   });
 

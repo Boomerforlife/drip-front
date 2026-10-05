@@ -171,9 +171,13 @@ class Hotspot {
     required this.y,
     this.highlighted = false,
     this.filled = false,
+    this.slot = '',
   });
 
   final String label;
+
+  /// The garment's slot in the fit (`top`, `shoes`…); empty when unknown.
+  final String slot;
 
   /// Position as a fraction of the image (0–1).
   final double x;
@@ -187,5 +191,6 @@ class Hotspot {
     label: (json['label'] as String? ?? '').toUpperCase(),
     x: (json['x'] as num?)?.toDouble() ?? 0.5,
     y: (json['y'] as num?)?.toDouble() ?? 0.5,
+    slot: json['slot'] as String? ?? '',
   );
 }

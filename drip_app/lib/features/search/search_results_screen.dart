@@ -8,10 +8,12 @@ import '../../core/widgets/pills.dart';
 import '../../core/widgets/states.dart';
 import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
+import '../../core/utils/format.dart';
 import '../../data/repositories/outfit_repository.dart';
 import '../../routing/main_shell.dart';
 import '../outfits/outfit_card.dart';
 import '../social/creator_tile.dart';
+import 'product_sheet.dart';
 import 'search_controller.dart';
 
 class SearchResultsScreen extends ConsumerStatefulWidget {
@@ -29,6 +31,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final results = ref.watch(searchResultsProvider(widget.query));
+    final pieces = ref.watch(productSearchProvider(widget.query)).value;
 
     return ShellPage(
       child: Column(
@@ -42,10 +45,10 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
               height: 50,
               leading: const BackGlyph(),
               trailing: GlyphButton(
-                '⌕',
+                '+',
                 mono: true,
-                onTap: () => context.pop(),
-                label: 'Edit search',
+                onTap: () => showImportLinkSheet(context, ref),
+                label: 'Add a piece by link',
               ),
             ),
           ),
@@ -80,7 +83,7 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                       ),
                     ),
                     Text(
-                      '${results.value?.total ?? 0} RESULTS',
+                      '${(results.value?.total ?? 0) + (pieces?.products.length ?? 0)} RESULTS',
                       style: AppText.mono(11, color: AppColors.muted),
                     ),
                   ],
@@ -93,7 +96,9 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
               onRetry: () =>
                   ref.invalidate(searchResultsProvider(widget.query)),
               data: (r) => _Body(
+                query: widget.query,
                 results: r,
+                pieceCount: pieces?.products.length,
                 tab: _tab,
                 onTab: (i) => setState(() => _tab = i),
               ),
@@ -106,8 +111,16 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 }
 
 class _Body extends StatelessWidget {
-  const _Body({required this.results, required this.tab, required this.onTab});
+  const _Body({
+    required this.query,
+    required this.results,
+    required this.pieceCount,
+    required this.tab,
+    required this.onTab,
+  });
+  final String query;
   final SearchResults results;
+  final int? pieceCount;
   final int tab;
   final ValueChanged<int> onTab;
 
@@ -121,26 +134,33 @@ class _Body extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
               FilterPill(
-                label: 'FITS (${r.fits.length})',
+                label: pieceCount == null ? 'PIECES' : 'PIECES ($pieceCount)',
                 selected: tab == 0,
                 onTap: () => onTab(0),
               ),
               FilterPill(
-                label: 'CREATORS (${r.creatorHandles.length})',
+                label: 'FITS (${r.fits.length})',
                 selected: tab == 1,
                 onTap: () => onTab(1),
               ),
               FilterPill(
-                label: 'COLLECTIONS',
+                label: 'CREATORS (${r.creatorHandles.length})',
                 selected: tab == 2,
                 onTap: () => onTab(2),
+              ),
+              FilterPill(
+                label: 'COLLECTIONS',
+                selected: tab == 3,
+                onTap: () => onTab(3),
               ),
             ],
           ),
         ),
-        if (tab == 0) ...[
+        if (tab == 0) _PiecesTab(query: query),
+        if (tab == 1) ...[
           if (r.fits.isEmpty)
             const EmptyState(
               title: 'NO FITS FOUND',
@@ -171,7 +191,7 @@ class _Body extends StatelessWidget {
             ),
           ],
         ],
-        if (tab == 1)
+        if (tab == 2)
           if (r.creatorHandles.isEmpty)
             const EmptyState(
               title: 'NO CREATORS FOUND',
@@ -183,7 +203,7 @@ class _Body extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: CreatorTile(handle: h),
               ),
-        if (tab == 2)
+        if (tab == 3)
           if (r.collections.isEmpty)
             const EmptyState(
               title: 'NO COLLECTIONS',
@@ -222,6 +242,79 @@ class _Body extends StatelessWidget {
                 ),
               ),
       ],
+    );
+  }
+}
+
+/// Pieces from across stores for this search, within the user's budget.
+/// What's ready shows at once; pieces Drip is still cutting out show the
+/// store's photo with a shimmer and swap to the cut-out when done.
+class _PiecesTab extends ConsumerWidget {
+  const _PiecesTab({required this.query});
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final search = ref.watch(productSearchProvider(query));
+    return search.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.only(top: 40),
+        child: LoadingState(compact: true, label: 'FINDING PIECES...'),
+      ),
+      error: (e, _) => ErrorState.from(
+        e,
+        onRetry: () => ref.invalidate(productSearchProvider(query)),
+      ),
+      data: (s) {
+        if (s.products.isEmpty) {
+          return EmptyState(
+            title: s.pending ? 'LOOKING ACROSS STORES' : 'NO PIECES FOUND',
+            message: s.pending
+                ? 'Drip is finding and cutting out pieces for this. They land here in a moment.'
+                : s.maxPrice != null
+                ? 'Nothing within your budget yet. Try other words, or paste a product link with +.'
+                : 'Try other words, or paste a product link with +.',
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (s.pending || s.maxPrice != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Text(
+                  [
+                    if (s.maxPrice != null)
+                      'UNDER ${formatPrice(s.maxPrice!)} A PIECE',
+                    if (s.pending) 'MORE ON THE WAY…',
+                  ].join(' · '),
+                  style: AppText.mono(
+                    9,
+                    color: AppColors.muted,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.62,
+              ),
+              itemCount: s.products.length,
+              itemBuilder: (context, i) => ProductCard(
+                key: ValueKey(s.products[i].id),
+                product: s.products[i],
+                onTap: () => showProductSheet(context, ref, s.products[i]),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

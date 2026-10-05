@@ -18,6 +18,7 @@ class ProfileIntro extends StatelessWidget {
     this.nameSize = 20,
     this.trailing,
     this.onEdit,
+    this.onAvatarTap,
   });
 
   final DripUser user;
@@ -26,32 +27,45 @@ class ProfileIntro extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onEdit;
 
+  /// Your own profile: tapping the picture changes it.
+  final VoidCallback? onAvatarTap;
+
   @override
   Widget build(BuildContext context) {
+    final avatar = Container(
+      width: 80,
+      height: 80,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: ringColor, width: 2),
+        boxShadow: ringColor == context.palette.secondary
+            ? null
+            : [
+                BoxShadow(
+                  color: ringColor.withValues(alpha: 0.2),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: user.avatar.isEmpty
+            ? ColoredBox(color: AppColors.elevated)
+            : DripImage(user.avatar, logicalWidth: 80),
+      ),
+    );
     return Row(
       children: [
-        Container(
-          width: 80,
-          height: 80,
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: ringColor, width: 2),
-            boxShadow: ringColor == context.palette.secondary
-                ? null
-                : [
-                    BoxShadow(
-                      color: ringColor.withValues(alpha: 0.2),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+        if (onAvatarTap == null)
+          avatar
+        else
+          Tap(
+            onTap: onAvatarTap,
+            semanticLabel: 'Change your profile photo',
+            child: avatar,
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
-            child: DripImage(user.avatar),
-          ),
-        ),
         const SizedBox(width: 16),
         Expanded(
           child: Column(

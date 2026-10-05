@@ -20,8 +20,8 @@ import '../../data/models/outfit.dart';
 import '../../data/models/stylist.dart';
 import '../../data/providers.dart';
 import '../../routing/main_shell.dart';
+import '../onboarding/local_selfie.dart';
 import '../outfits/outfit_controller.dart';
-import '../wardrobe/wardrobe_controller.dart';
 import 'photoshoot_controller.dart';
 
 class PhotoshootScreen extends ConsumerStatefulWidget {
@@ -44,7 +44,8 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
     });
   }
 
-  /// Gen renders the user wearing the fit, so it needs a selfie on file.
+  /// The selfie for Gen: kept on this phone only (`LocalSelfie`), never
+  /// uploaded. Gen renders the fit on its own until it's reworked to use it.
   Future<bool> _addSelfie() async {
     var guided = false;
     final source = await showDripSheet<ImageSource?>(
@@ -52,8 +53,8 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
       builder: (ctx) => SheetContent(
         title: 'ADD A SELFIE',
         subtitle:
-            'AI GEN puts you in the fit. Use a clear, front-facing photo in '
-            'good light. It stays private to your account.',
+            'Use a clear, front-facing photo in good light. It stays on this '
+            'phone, never uploaded.',
         children: [
           AppButton(
             label: 'GUIDED SELFIE ✦',
@@ -85,30 +86,18 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
       return await context.push<bool>('/selfie') ?? false;
     }
     if (source == null || !mounted) return false;
-    final XFile? file;
-    try {
-      file = await _picker.pickImage(
-        source: source,
-        preferredCameraDevice: CameraDevice.front,
-        maxWidth: 1600,
-        imageQuality: 88,
-      );
-    } catch (_) {
-      if (mounted) showDripToast(context, 'Camera unavailable');
-      return false;
-    }
-    if (file == null || !mounted) return false;
-    final type = imageContentType(file.name) ?? 'image/jpeg';
     setState(() => _uploadingSelfie = true);
     try {
-      await ref
-          .read(accountRepositoryProvider)
-          .uploadAvatar(await file.readAsBytes(), contentType: type);
-      ref.invalidate(accountProvider);
-      if (mounted) showDripToast(context, 'Selfie saved');
-      return true;
-    } on ApiException catch (e) {
-      if (mounted) showDripToast(context, e.friendly);
+      final picked = await ref.read(localSelfieProvider.notifier).pick(source);
+      if (picked && mounted) {
+        showDripToast(context, 'Selfie saved on this phone');
+      }
+      return picked;
+    } on SelfieUnavailable catch (e) {
+      if (mounted) showDripToast(context, e.message);
+      return false;
+    } catch (_) {
+      if (mounted) showDripToast(context, 'Camera unavailable');
       return false;
     } finally {
       if (mounted) setState(() => _uploadingSelfie = false);
@@ -149,8 +138,8 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
     final s = ref.read(photoshootProvider);
     final controller = ref.read(photoshootProvider.notifier);
     final fits = ref.read(shootableFitsProvider).value ?? const <Outfit>[];
-    final fit = fits.where((o) => o.id == s.fitId).firstOrNull ??
-        fits.firstOrNull;
+    final fit =
+        fits.where((o) => o.id == s.fitId).firstOrNull ?? fits.firstOrNull;
     if (fit == null) {
       showDripToast(context, 'Save or like a fit in the Scroll first');
       return;
@@ -185,7 +174,9 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
         showDripToast(context, "You've used all your AI GEN credits");
         return;
       }
-      if (!account.hasAvatar && !await _addSelfie()) return;
+      if (ref.read(localSelfieProvider).value == null && !await _addSelfie()) {
+        return;
+      }
     }
     await controller.generate(fit: fit, realImage: real);
     if (!mounted) return;
@@ -285,9 +276,9 @@ class _PhotoshootScreenState extends ConsumerState<PhotoshootScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 6),
                           child: Text(
                             _uploadingSelfie
-                                ? 'UPLOADING…'
-                                : account?.hasAvatar ?? false
-                                ? 'SELFIE ON FILE ✓'
+                                ? 'SAVING…'
+                                : ref.watch(localSelfieProvider).value != null
+                                ? 'SELFIE ON THIS PHONE ✓'
                                 : 'ADD A SELFIE →',
                             style: AppText.mono(9, color: AppColors.cyan),
                           ),

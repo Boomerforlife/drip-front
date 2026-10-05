@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/motion.dart';
 import '../../core/theme/app_colors.dart';
@@ -15,7 +14,6 @@ import '../../routing/main_shell.dart';
 import '../home/feed_controller.dart';
 import '../session/session_controller.dart';
 import '../settings/settings_screen.dart';
-import 'local_selfie.dart';
 import 'onboarding_steps.dart';
 import 'onboarding_ticket.dart';
 
@@ -28,12 +26,7 @@ enum StylePart {
   labels('Labels', 'Labels', 'The labels you wear.'),
   fit('Fit & budget', 'Fit & budget', 'How you wear it, what you spend.'),
   pieces('Pieces', 'Your pieces', 'What’s already in your closet.'),
-  accessories('Accessories', 'Accessories', 'The ones you actually wear.'),
-  selfie(
-    'Selfie',
-    'Your photo',
-    'On your ticket, and only on this phone. Never uploaded.',
-  );
+  accessories('Accessories', 'Accessories', 'The ones you actually wear.');
 
   const StylePart(this.label, this.title, this.subtitle);
   final String label;
@@ -58,7 +51,6 @@ class StyleScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final picks = ref.watch(onboardingProvider);
-    final photo = ref.watch(localSelfieProvider).value;
     final info = TicketInfo(picks);
     String value(StylePart p) => switch (p) {
       StylePart.dressFor => switch (picks.gender) {
@@ -68,7 +60,6 @@ class StyleScreen extends ConsumerWidget {
         _ => 'Not set',
       },
       StylePart.occasions => _list(info.occasionLabels),
-      StylePart.selfie => photo == null ? 'Not added' : 'On this phone',
       StylePart.eras => _list(info.eraLabels, none: 'Not set'),
       StylePart.colours => _list(
         info.colours.map((c) => c.$2),
@@ -123,7 +114,7 @@ class StyleScreen extends ConsumerWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: DripTicket(info: info, photo: photo),
+                  child: DripTicket(info: info),
                 ),
               ],
             ),
@@ -148,23 +139,6 @@ class StylePartScreen extends ConsumerStatefulWidget {
 class _StylePartScreenState extends ConsumerState<StylePartScreen> {
   late final OnboardingState _before = ref.read(onboardingProvider);
   bool _saving = false;
-  bool _picking = false;
-
-  /// The selfie changes only this phone, so it applies straight away (no
-  /// SAVE, nothing sent anywhere).
-  Future<void> _pick(ImageSource source) async {
-    if (_picking) return;
-    setState(() => _picking = true);
-    try {
-      await ref.read(localSelfieProvider.notifier).pick(source);
-    } on SelfieUnavailable catch (e) {
-      if (mounted) showDripToast(context, e.message);
-    } catch (_) {
-      if (mounted) showDripToast(context, 'Couldn’t use that photo');
-    } finally {
-      if (mounted) setState(() => _picking = false);
-    }
-  }
 
   bool get _dirty =>
       jsonEncode(ref.read(onboardingProvider).toPrefs()) !=
@@ -222,7 +196,6 @@ class _StylePartScreenState extends ConsumerState<StylePartScreen> {
       onPick: ref.read(onboardingProvider.notifier).setGender,
     ),
     StylePart.occasions => const OccasionsStep(),
-    StylePart.selfie => SelfieStep(busy: _picking),
     StylePart.eras => ErasStep(onGlow: (_) {}),
     StylePart.colours => ColoursStep(onGlow: (_) {}),
     StylePart.pieces => const ClothesStep(),
@@ -270,30 +243,11 @@ class _StylePartScreenState extends ConsumerState<StylePartScreen> {
               ),
               Padding(
                 padding: EdgeInsets.fromLTRB(24, 8, 24, bottom + 16),
-                child: widget.part == StylePart.selfie
-                    ? Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppButton(
-                            label: 'TAKE A SELFIE',
-                            loading: _picking,
-                            onPressed: () => _pick(ImageSource.camera),
-                          ),
-                          const SizedBox(height: 12),
-                          AppButton(
-                            label: 'CHOOSE FROM GALLERY',
-                            style: AppButtonStyle.outline,
-                            onPressed: _picking
-                                ? null
-                                : () => _pick(ImageSource.gallery),
-                          ),
-                        ],
-                      )
-                    : AppButton(
-                        label: missing ?? 'SAVE',
-                        loading: _saving,
-                        onPressed: missing == null ? _save : null,
-                      ),
+                child: AppButton(
+                  label: missing ?? 'SAVE',
+                  loading: _saving,
+                  onPressed: missing == null ? _save : null,
+                ),
               ),
             ],
           ),

@@ -99,10 +99,8 @@ void main() {
     expect(find.text('LABELS'), findsOneWidget);
     await tapText(t, 'CONTINUE →');
 
-    // Selfie: optional, and skippable without taking one.
-    expect(find.text('SEE YOURSELF IN THE FIT'), findsOneWidget);
-    expect(find.text('TAKE A SELFIE'), findsOneWidget);
-    await tapText(t, 'SKIP FOR NOW');
+    // No selfie step: selfies are taken in the Selfie Coordinator.
+    expect(find.text('SEE YOURSELF IN THE FIT'), findsNothing);
 
     // Name (no name, no ticket), then the build, then the ticket.
     await tapText(t, 'ADD YOUR NAME TO CONTINUE');

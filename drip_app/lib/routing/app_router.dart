@@ -16,6 +16,7 @@ import '../features/onboarding/style_editor_screen.dart';
 import '../features/scroll/fashion_scroll_screen.dart';
 import '../features/outfits/outfit_detail_screen.dart';
 import '../features/photoshoot/photoshoot_result_screen.dart';
+import '../features/selfie/selfie_gallery_screen.dart';
 import '../features/selfie/selfie_screen.dart';
 import '../features/photoshoot/photoshoot_screen.dart';
 import '../features/profile/colour_theory_profile_screen.dart';
@@ -24,6 +25,7 @@ import '../features/profile/public_profile_screen.dart';
 import '../features/search/search_results_screen.dart';
 import '../features/search/search_screen.dart';
 import '../features/session/session_controller.dart';
+import '../features/admin/review_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/settings/theme_picker_screen.dart';
 import '../features/social/followers_screen.dart';
@@ -213,6 +215,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         (s) => OotdViewerScreen(ootdId: s.pathParameters['id']!),
       ),
       _page('/selfie', (_) => const SelfieScreen()),
+      _page('/selfies', (_) => const SelfieGalleryScreen()),
       _page('/themes', (_) => const ThemePickerScreen(), fade: true),
       _page('/stylist', (_) => const TaylorScreen()),
       _page('/stylist/result', (_) => const TaylorResultScreen()),
@@ -287,6 +290,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           _page('/following', (_) => const FollowingScreen()),
           _page('/activity', (_) => const ActivityScreen()),
           _page('/settings', (_) => const SettingsScreen()),
+          _page('/admin/review', (_) => const ReviewScreen()),
           _page('/photoshoot', (_) => const PhotoshootScreen()),
           _page('/photoshoot/result', (_) => const PhotoshootResultScreen()),
         ],

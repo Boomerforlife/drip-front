@@ -180,9 +180,8 @@ class SessionController extends Notifier<SessionState> {
 
   Future<void> logout() async {
     await ref.read(authRepositoryProvider).signOut();
-    // The onboarding selfie only ever lived on this device: it goes too.
-    final selfie = ref.read(localStoreProvider).selfiePath;
-    if (selfie != null) LocalSelfie.deleteFile(selfie);
+    // Selfies only ever lived on this device: they go too.
+    await ref.read(selfieGalleryProvider.notifier).deleteAll();
     await ref.read(localStoreProvider).clearAccount();
     state = const SessionState(signedIn: false, onboarded: false);
   }

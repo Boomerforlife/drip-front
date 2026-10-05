@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/api/api_client.dart';
-import '../../data/providers.dart';
+import '../onboarding/local_selfie.dart';
 import 'selfie_camera.dart';
 import 'selfie_intent.dart';
 import 'shot_review.dart';
@@ -87,7 +87,10 @@ class SelfieController extends Notifier<SelfieState> {
   void changeIntent() => state = state.copyWith(step: SelfieStep.intent);
 
   /// Reviews and stores a finished photo, then selects it.
-  Future<void> addShot(Uint8List bytes, {String contentType = 'image/jpeg'}) async {
+  Future<void> addShot(
+    Uint8List bytes, {
+    String contentType = 'image/jpeg',
+  }) async {
     final stats = await ref.read(selfieStillAnalyzerProvider)(bytes);
     if (!ref.mounted) return;
     final review = stats == null
@@ -116,11 +119,7 @@ class SelfieController extends Notifier<SelfieState> {
   /// Drop the selected shot and go back to the camera.
   void retake() {
     final shots = [...state.shots]..removeAt(state.selected);
-    state = state.copyWith(
-      shots: shots,
-      selected: 0,
-      step: SelfieStep.camera,
-    );
+    state = state.copyWith(shots: shots, selected: 0, step: SelfieStep.camera);
   }
 
   void backToCamera() => state = state.copyWith(step: SelfieStep.camera);
@@ -131,17 +130,16 @@ class SelfieController extends Notifier<SelfieState> {
     angleRound: state.angleRound + 1,
   );
 
-  /// Uploads the selected photo as the user's selfie, the same pipeline Gen
-  /// already reads (`hasAvatar`). Throws [ApiException] on failure.
+  /// Keeps the selected photo as the user's selfie, on this device only
+  /// (`LocalSelfie`). Nothing is uploaded.
   Future<void> useSelected() async {
     final shot = state.current;
     if (shot == null || state.uploading) return;
     state = state.copyWith(uploading: true);
     try {
       await ref
-          .read(accountRepositoryProvider)
-          .uploadAvatar(shot.bytes, contentType: shot.contentType);
-      ref.invalidate(accountProvider);
+          .read(localSelfieProvider.notifier)
+          .save(shot.bytes, contentType: shot.contentType);
     } finally {
       if (ref.mounted) state = state.copyWith(uploading: false);
     }
@@ -153,6 +151,6 @@ final selfieProvider =
       SelfieController.new,
     );
 
-/// Why an upload failed, in words for a toast.
+/// Why saving failed, in words for a toast.
 String selfieUploadError(Object e) =>
     e is ApiException ? e.friendly : 'Couldn’t save your selfie. Try again.';

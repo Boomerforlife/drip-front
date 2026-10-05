@@ -4,11 +4,13 @@ import 'package:drip/data/providers.dart';
 import 'package:drip/data/repositories/account_repository.dart';
 import 'package:drip/data/repositories/auth_repository.dart';
 import 'package:drip/data/repositories/colour_repository.dart';
+import 'package:drip/data/repositories/discovery_repository.dart';
 import 'package:drip/data/repositories/feed_repository.dart';
 import 'package:drip/data/repositories/outfit_repository.dart';
 import 'package:drip/data/repositories/studio_repository.dart';
 import 'package:drip/data/repositories/stylist_repository.dart';
 import 'package:drip/data/repositories/wardrobe_repository.dart';
+import 'package:drip/features/onboarding/local_selfie.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -74,6 +76,7 @@ List<Override> testOverrides(
   AccountRepository? account,
   FeedRepository? feed,
   OutfitRepository? outfits,
+  DiscoveryRepository? discovery,
 }) => [
   sharedPreferencesProvider.overrideWithValue(prefs),
   authRepositoryProvider.overrideWithValue(
@@ -90,4 +93,9 @@ List<Override> testOverrides(
   studioRepositoryProvider.overrideWith((_) => MockStudioRepository()),
   stylistRepositoryProvider.overrideWith((_) => MockStylistRepository()),
   colourRepositoryProvider.overrideWith((_) => MockColourRepository()),
+  discoveryRepositoryProvider.overrideWith(
+    (_) => discovery ?? MockDiscoveryRepository(),
+  ),
+  // No app folder: a selfie stays where it was picked (real file I/O stalls in widget tests).
+  selfieFolderProvider.overrideWithValue(() async => null),
 ];

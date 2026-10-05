@@ -60,12 +60,17 @@ class StudioPiece {
     this.price = 0,
     this.source = 'catalog',
     this.brand,
+    this.subcategory,
   });
   final String id;
   final String name;
 
   /// The store it comes from; null for wardrobe pieces.
   final String? brand;
+
+  /// What it is, finer than [category] ("jeans", "bag"); null for wardrobe
+  /// pieces.
+  final String? subcategory;
 
   /// Studio category label (OUTERWEAR, TOPS, BOTTOMS, FOOTWEAR…).
   final String category;
@@ -88,6 +93,7 @@ class StudioPiece {
       price: price is Map ? ((price['amount'] as num?)?.round() ?? 0) : 0,
       source: json['source'] as String? ?? 'catalog',
       brand: json['brand'] as String?,
+      subcategory: json['subcategory'] as String?,
     );
   }
 }

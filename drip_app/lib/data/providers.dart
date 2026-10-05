@@ -10,6 +10,7 @@ import 'repositories/account_repository.dart';
 import 'repositories/activity_repository.dart';
 import 'repositories/auth_repository.dart';
 import 'repositories/colour_repository.dart';
+import 'repositories/discovery_repository.dart';
 import 'repositories/feed_repository.dart';
 import 'repositories/local_store.dart';
 import 'repositories/outfit_repository.dart';
@@ -89,6 +90,11 @@ final stylistRepositoryProvider = Provider<StylistRepository>(
 
 final studioRepositoryProvider = Provider<StudioRepository>(
   (ref) => ApiStudioRepository(ref.watch(apiClientProvider)),
+);
+
+/// Pieces from across stores (search, link import, admin review).
+final discoveryRepositoryProvider = Provider<DiscoveryRepository>(
+  (ref) => ApiDiscoveryRepository(ref.watch(apiClientProvider)),
 );
 
 final colourRepositoryProvider = Provider<ColourRepository>(

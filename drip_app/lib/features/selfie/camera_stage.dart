@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -241,8 +242,8 @@ class _CameraStageState extends ConsumerState<CameraStage>
         ),
         ValueListenableBuilder<_Hint>(
           valueListenable: _hint,
-          builder: (_, hint, _) => CustomPaint(
-            painter: _GuidePainter(
+          builder: (_, hint, _) => IgnorePointer(
+            child: _FaceHusk(
               intent: widget.intent,
               color: hint.ready ? accent : AppColors.cream,
               ready: hint.ready,
@@ -294,9 +295,7 @@ class _CameraStageState extends ConsumerState<CameraStage>
                 ValueListenableBuilder<_Hint>(
                   valueListenable: _hint,
                   builder: (_, hint, _) => _Caption(
-                    text: _count != null
-                        ? 'Hold still.'
-                        : hint.guidance?.text,
+                    text: _count != null ? 'Hold still.' : hint.guidance?.text,
                     good: hint.guidance?.tone == GuidanceTone.good,
                     accent: accent,
                   ),
@@ -483,10 +482,7 @@ class _Shutter extends StatelessWidget {
         padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(
-            color: ready ? accent : AppColors.cream,
-            width: 3,
-          ),
+          border: Border.all(color: ready ? accent : AppColors.cream, width: 3),
         ),
         child: Container(
           alignment: Alignment.center,
@@ -503,10 +499,13 @@ class _Shutter extends StatelessWidget {
   }
 }
 
-/// A faint oval and eye line showing where the head should sit. Sized from
-/// the chosen photo type, so Fashion asks for a wider frame than Dating.
-class _GuidePainter extends CustomPainter {
-  _GuidePainter({
+/// Where the head should sit: a featureless face shape, a husk of head, ears,
+/// neck and shoulders, sized from the chosen photo type (Fashion asks for a
+/// wider frame than Dating). It breathes slowly and a soft light traces its
+/// outline, so it reads as a guide to step into; once the framing is right it
+/// firms up in the accent colour. Still when motion is reduced.
+class _FaceHusk extends StatefulWidget {
+  const _FaceHusk({
     required this.intent,
     required this.color,
     required this.ready,
@@ -516,37 +515,199 @@ class _GuidePainter extends CustomPainter {
   final bool ready;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final faceH = (intent.faceMin + intent.faceMax) / 2;
-    final ovalH = size.height * faceH * 1.3;
-    final ovalW = ovalH * 0.78;
-    final headroom = (intent.headroomMin + intent.headroomMax) / 2;
-    final cy = size.height * headroom + ovalH / 2;
-    final rect = Rect.fromCenter(
-      center: Offset(size.width / 2, cy),
-      width: ovalW,
-      height: ovalH,
-    );
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = ready ? 2 : 1.4
-      ..color = color.withValues(alpha: ready ? 0.9 : 0.32);
-    canvas.drawOval(rect, stroke);
+  State<_FaceHusk> createState() => _FaceHuskState();
+}
 
-    // Eye line: short ticks either side of the oval, a third of the way down.
-    final y = rect.top + ovalH * 0.38;
-    final tick = Paint()
-      ..strokeWidth = 1.2
-      ..color = color.withValues(alpha: 0.28);
-    canvas.drawLine(Offset(rect.left - 26, y), Offset(rect.left - 6, y), tick);
-    canvas.drawLine(
-      Offset(rect.right + 6, y),
-      Offset(rect.right + 26, y),
-      tick,
-    );
+class _FaceHuskState extends State<_FaceHusk>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _t = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2800),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _t.stop();
+    } else if (!_t.isAnimating) {
+      _t.repeat();
+    }
   }
 
   @override
-  bool shouldRepaint(_GuidePainter old) =>
-      old.intent != intent || old.color != color || old.ready != ready;
+  void dispose() {
+    _t.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _t,
+      builder: (_, _) => CustomPaint(
+        painter: _HuskPainter(
+          intent: widget.intent,
+          color: widget.color,
+          ready: widget.ready,
+          t: _t.value,
+          moving: _t.isAnimating,
+        ),
+      ),
+    );
+  }
+}
+
+class _HuskPainter extends CustomPainter {
+  _HuskPainter({
+    required this.intent,
+    required this.color,
+    required this.ready,
+    required this.t,
+    required this.moving,
+  });
+  final SelfieIntent intent;
+  final Color color;
+  final bool ready;
+
+  /// 0–1 round the loop: the breath and the light along the outline.
+  final double t;
+  final bool moving;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final faceH = (intent.faceMin + intent.faceMax) / 2;
+    final h = size.height * faceH * 1.3; // head, crown to chin
+    final w = h * 0.74;
+    final headroom = (intent.headroomMin + intent.headroomMax) / 2;
+    final cx = size.width / 2;
+    final top = size.height * headroom;
+
+    // A slow breath: the whole husk swells by a hair and settles.
+    final breath = moving ? 1 + 0.012 * math.sin(t * 2 * math.pi) : 1.0;
+    canvas.save();
+    canvas.translate(cx, top + h / 2);
+    canvas.scale(breath);
+    canvas.translate(-cx, -(top + h / 2));
+
+    final head = _head(cx, top, w, h);
+    final body = _body(cx, top, w, h);
+
+    canvas.drawPath(
+      head,
+      Paint()..color = color.withValues(alpha: ready ? 0.10 : 0.05),
+    );
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = ready ? 2 : 1.4
+      ..color = color.withValues(alpha: ready ? 0.9 : 0.34);
+    canvas.drawPath(head, line);
+    canvas.drawPath(
+      body,
+      line..color = line.color.withValues(alpha: line.color.a * 0.75),
+    );
+
+    // The light: a short brighter stretch gliding round the head.
+    if (moving && !ready) {
+      for (final m in head.computeMetrics()) {
+        final len = m.length * 0.16;
+        final start = (t * m.length) % m.length;
+        final glow = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 2
+          ..color = color.withValues(alpha: 0.75);
+        canvas.drawPath(m.extractPath(start, start + len), glow);
+        if (start + len > m.length) {
+          canvas.drawPath(m.extractPath(0, start + len - m.length), glow);
+        }
+      }
+    }
+    canvas.restore();
+  }
+
+  /// Crown to chin, with ears: wide at the temples, narrowing to the jaw.
+  static Path _head(double cx, double top, double w, double h) {
+    final r = w / 2;
+    final p = Path()..moveTo(cx, top);
+    // Right side: crown, temple, ear, jaw, chin.
+    p.cubicTo(
+      cx + r * 0.58,
+      top,
+      cx + r,
+      top + h * 0.17,
+      cx + r,
+      top + h * 0.4,
+    );
+    p.cubicTo(
+      cx + r * 1.13,
+      top + h * 0.42,
+      cx + r * 1.13,
+      top + h * 0.56,
+      cx + r * 0.99,
+      top + h * 0.58,
+    );
+    p.cubicTo(
+      cx + r * 0.95,
+      top + h * 0.72,
+      cx + r * 0.72,
+      top + h * 0.88,
+      cx + r * 0.42,
+      top + h * 0.96,
+    );
+    p.quadraticBezierTo(cx, top + h * 1.02, cx - r * 0.42, top + h * 0.96);
+    // Left side, mirrored back up to the crown.
+    p.cubicTo(
+      cx - r * 0.72,
+      top + h * 0.88,
+      cx - r * 0.95,
+      top + h * 0.72,
+      cx - r * 0.99,
+      top + h * 0.58,
+    );
+    p.cubicTo(
+      cx - r * 1.13,
+      top + h * 0.56,
+      cx - r * 1.13,
+      top + h * 0.42,
+      cx - r,
+      top + h * 0.4,
+    );
+    p.cubicTo(cx - r, top + h * 0.17, cx - r * 0.58, top, cx, top);
+    return p..close();
+  }
+
+  /// Neck and the line of the shoulders, open at the bottom.
+  static Path _body(double cx, double top, double w, double h) {
+    final r = w / 2;
+    final p = Path();
+    for (final side in const [1.0, -1.0]) {
+      p
+        ..moveTo(cx + side * r * 0.4, top + h * 0.95)
+        ..lineTo(cx + side * r * 0.44, top + h * 1.12)
+        ..quadraticBezierTo(
+          cx + side * r * 0.62,
+          top + h * 1.2,
+          cx + side * r * 1.75,
+          top + h * 1.3,
+        )
+        ..quadraticBezierTo(
+          cx + side * r * 2.3,
+          top + h * 1.38,
+          cx + side * r * 2.45,
+          top + h * 1.75,
+        );
+    }
+    return p;
+  }
+
+  @override
+  bool shouldRepaint(_HuskPainter old) =>
+      old.t != t ||
+      old.intent != intent ||
+      old.color != color ||
+      old.ready != ready ||
+      old.moving != moving;
 }

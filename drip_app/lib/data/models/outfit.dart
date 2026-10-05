@@ -138,6 +138,8 @@ class OutfitPiece {
     required this.price,
     this.image,
     this.buyUrl,
+    this.id,
+    this.subcategory,
   });
 
   /// TOP / BOTTOM / SHOES… (upper-case for display).
@@ -150,6 +152,13 @@ class OutfitPiece {
   final String? image;
   final String? buyUrl;
 
+  /// The catalogue garment's id, when the API sends it (it's what saving to
+  /// the wardrobe or the Studio needs); else it's matched by its cut-out.
+  final String? id;
+
+  /// What it is, finer than [slot]: "jeans", "sneakers", "bag".
+  final String? subcategory;
+
   factory OutfitPiece.fromJson(Map<String, dynamic> json) {
     final category = (json['category'] as String? ?? '').toUpperCase();
     return OutfitPiece(
@@ -159,6 +168,8 @@ class OutfitPiece {
       price: moneyAmount(json['price']) ?? 0,
       image: json['image'] as String?,
       buyUrl: json['buyUrl'] as String?,
+      id: (json['garmentId'] ?? json['id']) as String?,
+      subcategory: json['subcategory'] as String?,
     );
   }
 }
@@ -171,9 +182,13 @@ class Hotspot {
     required this.y,
     this.highlighted = false,
     this.filled = false,
+    this.slot = '',
   });
 
   final String label;
+
+  /// The garment's slot in the fit (`top`, `shoes`…); empty when unknown.
+  final String slot;
 
   /// Position as a fraction of the image (0–1).
   final double x;
@@ -187,5 +202,6 @@ class Hotspot {
     label: (json['label'] as String? ?? '').toUpperCase(),
     x: (json['x'] as num?)?.toDouble() ?? 0.5,
     y: (json['y'] as num?)?.toDouble() ?? 0.5,
+    slot: json['slot'] as String? ?? '',
   );
 }

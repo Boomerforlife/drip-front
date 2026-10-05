@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_text.dart';
 import '../../core/widgets/overlays.dart';
+import '../../core/widgets/tap.dart';
 import '../../core/widgets/top_bar.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import 'camera_stage.dart';
@@ -63,7 +65,7 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> {
       return;
     }
     if (!mounted) return;
-    showDripToast(context, 'Selfie saved');
+    showDripToast(context, 'Selfie saved on this phone');
     _exit(true);
   }
 
@@ -104,12 +106,28 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> {
               child: Column(
                 children: [
                   DripTopBar(
-                    title: s.step == SelfieStep.intent ? 'SELFIE' : 'YOUR SHOTS',
+                    title: s.step == SelfieStep.intent
+                        ? 'SELFIE'
+                        : 'YOUR SHOTS',
                     leading: BackGlyph(
                       onTap: s.step == SelfieStep.review
                           ? c.backToCamera
                           : _exit,
                     ),
+                    // Every selfie kept on this phone.
+                    trailing: s.step == SelfieStep.intent
+                        ? Tap(
+                            onTap: () => context.push('/selfies'),
+                            semanticLabel: 'My selfies',
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                'MY SELFIES',
+                                style: AppText.mono(10, color: AppColors.cyan),
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
                   Expanded(
                     child: s.step == SelfieStep.intent

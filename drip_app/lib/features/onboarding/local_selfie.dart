@@ -4,24 +4,27 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../data/providers.dart';
 
-/// The selfie from onboarding: **local media, not profile data**.
+/// The user's selfie in use: **local media, not profile data**.
 ///
-/// It lives as a file on this device (the path is kept in `LocalStore`, the
-/// bytes in memory while shown) and is used only here: on the user's ticket
-/// and pass. It is never uploaded, never sent to the account, never handed
-/// to Gen. The Selfie Coordinator (`/selfie`), which uploads a photo for Gen
-/// photoshoots, is a separate, explicit action with its own consent.
-///
-/// Removing it (or logging out) deletes the file.
+/// Every selfie lives as a file on this device, in the app's own folder
+/// (which the OS doesn't clear like the camera's cache), and is never
+/// uploaded: not to the account, not to Gen. Each one saved stays in
+/// [SelfieGallery]; the one in use (its path kept in `LocalStore`, the bytes
+/// in memory while shown) is the newest unless the user picks another. The
+/// Selfie Coordinator (`/selfie`) and the Studio shot write here. Since
+/// 2026-10-05 the backend no longer accepts selfies at all; Gen will be
+/// reworked to use them on the device. Logging out deletes them all.
 class LocalSelfie extends AsyncNotifier<Uint8List?> {
   @override
   Future<Uint8List?> build() async {
     final path = ref.watch(localStoreProvider).selfiePath;
     if (path == null) return null;
     try {
+      if (path.startsWith('data:')) return UriData.parse(path).contentAsBytes();
       return await XFile(path).readAsBytes();
     } catch (_) {
       // The OS cleared it (a cache file): forget it quietly.
@@ -41,24 +44,66 @@ class LocalSelfie extends AsyncNotifier<Uint8List?> {
     }
     if (file == null) return false;
     final bytes = await file.readAsBytes();
-    final old = ref.read(localStoreProvider).selfiePath;
-    await ref.read(localStoreProvider).setSelfiePath(file.path);
-    if (old != null && old != file.path) deleteFile(old);
-    state = AsyncData(bytes);
+    await _store(bytes, from: file.path);
     return true;
   }
 
-  /// Forgets the selfie and deletes its file.
+  /// Keeps a photo taken in the app (the Selfie Coordinator's camera) as the
+  /// selfie in use, and in the gallery. Stays on the device.
+  Future<void> save(Uint8List bytes, {String contentType = 'image/jpeg'}) =>
+      _store(bytes, ext: contentType == 'image/png' ? 'png' : 'jpg');
+
+  Future<void> _store(
+    Uint8List bytes, {
+    String? from,
+    String ext = 'jpg',
+  }) async {
+    final dir = await ref.read(selfieFolderProvider)();
+    final String path;
+    if (dir != null) {
+      final f = File(
+        '$dir${Platform.pathSeparator}selfie_${DateTime.now().millisecondsSinceEpoch}.$ext',
+      );
+      await f.writeAsBytes(bytes, flush: true);
+      path = f.path;
+    } else {
+      // No app folder (web, tests): keep the picker's file, or the bytes.
+      path =
+          from ??
+          UriData.fromBytes(
+            bytes,
+            mimeType: ext == 'png' ? 'image/png' : 'image/jpeg',
+          ).toString();
+    }
+    // The one it replaces stays in the gallery.
+    await ref.read(localStoreProvider).setSelfiePath(path);
+    state = AsyncData(bytes);
+    ref.invalidate(selfieGalleryProvider);
+  }
+
+  /// Makes a selfie from the gallery the one in use.
+  Future<void> use(String path) async {
+    await ref.read(localStoreProvider).setSelfiePath(path);
+    ref.invalidateSelf();
+  }
+
+  /// Stops using a selfie (its file stays in the gallery).
+  Future<void> clear() async {
+    await ref.read(localStoreProvider).setSelfiePath(null);
+    state = const AsyncData(null);
+  }
+
+  /// Forgets the selfie in use and deletes its file.
   Future<void> remove() async {
     final path = ref.read(localStoreProvider).selfiePath;
-    await ref.read(localStoreProvider).setSelfiePath(null);
+    await clear();
     if (path != null) deleteFile(path);
-    state = const AsyncData(null);
+    ref.invalidate(selfieGalleryProvider);
   }
 
   /// Deletes a selfie file (best effort).
   static void deleteFile(String path) {
-    if (kIsWeb) return;
+    if (kIsWeb || path.startsWith('data:')) return;
     try {
       final f = File(path);
       if (f.existsSync()) f.deleteSync();
@@ -70,6 +115,91 @@ class LocalSelfie extends AsyncNotifier<Uint8List?> {
 
 final localSelfieProvider = AsyncNotifierProvider<LocalSelfie, Uint8List?>(
   LocalSelfie.new,
+);
+
+/// Every selfie kept on this phone, newest first: the files in the selfie
+/// folder (where there's no folder, just the one in use). Paths are file
+/// paths, or `data:` URIs on web and in tests.
+class SelfieGallery extends AsyncNotifier<List<String>> {
+  @override
+  Future<List<String>> build() async {
+    final inUse = ref.watch(localStoreProvider).selfiePath;
+    final dir = await ref.read(selfieFolderProvider)();
+    if (dir == null) return [?inUse];
+    try {
+      final files = await Directory(dir)
+          .list()
+          .where((e) => e is File && _isSelfie(e.path))
+          .map((e) => e.path)
+          .toList();
+      // Named by the time they were taken: newest first.
+      files.sort((a, b) => b.compareTo(a));
+      return files;
+    } catch (_) {
+      return [?inUse];
+    }
+  }
+
+  static bool _isSelfie(String path) {
+    final name = path.split(Platform.pathSeparator).last;
+    return name.startsWith('selfie_') &&
+        (name.endsWith('.jpg') || name.endsWith('.png'));
+  }
+
+  /// Deletes one selfie. If it was in use, the newest one left takes over.
+  Future<void> delete(String path) async {
+    final store = ref.read(localStoreProvider);
+    LocalSelfie.deleteFile(path);
+    final left = [
+      for (final p in state.value ?? const <String>[])
+        if (p != path) p,
+    ];
+    state = AsyncData(left);
+    if (store.selfiePath == path) {
+      if (left.isEmpty) {
+        await ref.read(localSelfieProvider.notifier).clear();
+      } else {
+        await ref.read(localSelfieProvider.notifier).use(left.first);
+      }
+    }
+  }
+
+  /// Deletes them all (logging out).
+  Future<void> deleteAll() async {
+    final dir = await ref.read(selfieFolderProvider)();
+    final inUse = ref.read(localStoreProvider).selfiePath;
+    if (inUse != null) LocalSelfie.deleteFile(inUse);
+    if (dir != null) {
+      try {
+        await Directory(dir).delete(recursive: true);
+      } catch (_) {
+        // Already gone.
+      }
+    }
+    await ref.read(localStoreProvider).setSelfiePath(null);
+    ref.invalidate(localSelfieProvider);
+    ref.invalidateSelf();
+  }
+}
+
+final selfieGalleryProvider =
+    AsyncNotifierProvider<SelfieGallery, List<String>>(SelfieGallery.new);
+
+/// The folder selfies are copied into, or null to keep them where they were
+/// picked (web has no app folder; tests replace it).
+final selfieFolderProvider = Provider<Future<String?> Function()>(
+  (ref) => () async {
+    if (kIsWeb) return null;
+    try {
+      final dir = Directory(
+        '${(await getApplicationSupportDirectory()).path}/selfie',
+      );
+      await dir.create(recursive: true);
+      return dir.path;
+    } catch (_) {
+      return null;
+    }
+  },
 );
 
 /// Camera or gallery, as one call (tests replace it). A reasonably small,

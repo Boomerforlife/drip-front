@@ -13,8 +13,16 @@ import '../bag/bag_controller.dart';
 
 /// Opens a piece's product page on the brand's own store, inside the app (Chrome Custom Tabs on
 /// Android, Safari View on iOS, a new tab on web), so the feed stays one swipe away.
-Future<void> openProductPage(BuildContext context, OutfitPiece piece) async {
-  final url = piece.buyUrl;
+Future<void> openProductPage(BuildContext context, OutfitPiece piece) =>
+    openStoreLink(context, piece.buyUrl, store: piece.brand);
+
+/// Opens any product link the same way ([openProductPage] for a fit's piece; discovered products
+/// use it directly).
+Future<void> openStoreLink(
+  BuildContext context,
+  String? url, {
+  String store = '',
+}) async {
   final uri = url == null ? null : Uri.tryParse(url);
   if (uri == null || !uri.hasScheme) {
     showDripToast(context, 'No store link for this piece yet');
@@ -32,7 +40,7 @@ Future<void> openProductPage(BuildContext context, OutfitPiece piece) async {
   if (!opened && context.mounted) {
     showDripToast(
       context,
-      "Couldn't open ${piece.brand.isEmpty ? 'the store' : piece.brand}",
+      "Couldn't open ${store.isEmpty ? 'the store' : store}",
     );
   }
 }

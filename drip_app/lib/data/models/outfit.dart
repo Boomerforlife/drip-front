@@ -21,6 +21,7 @@ class Outfit {
     this.season = const [],
     this.colourStory,
     this.formality,
+    this.budgetBand,
     this.isLiked = false,
   });
 
@@ -48,6 +49,11 @@ class Outfit {
 
   /// 1 (casual) – 5 (formal).
   final int? formality;
+
+  /// Where the fit sits against the user's budget, as `GET /scroll` ranks
+  /// it: `in`, `stretch` (a little over) or `over`. Null when the server
+  /// doesn't say (unpriced, no budget, or before the backend sends it).
+  final String? budgetBand;
   final bool isLiked;
 
   bool get isCollage => kind == 'collage';
@@ -69,6 +75,7 @@ class Outfit {
     season: season,
     colourStory: colourStory,
     formality: formality,
+    budgetBand: budgetBand,
     isLiked: isLiked ?? this.isLiked,
   );
 
@@ -99,6 +106,7 @@ class Outfit {
       season: season,
       colourStory: colourStory,
       formality: formality,
+      budgetBand: json['budgetBand'] as String?,
       tags: [
         if (formality != null) formalityLabel(formality),
         for (final s in season)

@@ -87,6 +87,17 @@ class LocalStore {
     await _prefs.remove('studio.extras.$fitId');
   }
 
+  /// The first-run tour was finished or skipped.
+  bool get tourSeen => _prefs.getBool('tour.seen') ?? false;
+  Future<void> setTourSeen(bool v) => _prefs.setBool('tour.seen', v);
+
+  /// Bug reports that couldn't be sent yet (JSON each), oldest first.
+  List<String> get queuedReports =>
+      _prefs.getStringList('reports.queued') ?? const [];
+  Future<void> setQueuedReports(List<String> v) => v.isEmpty
+      ? _prefs.remove('reports.queued')
+      : _prefs.setStringList('reports.queued', v);
+
   /// Wardrobe items marked "in rotation" (no backend field for this yet).
   Set<String> get rotation => _prefs.getStringList(_rotation)?.toSet() ?? {};
   Future<void> setRotation(Set<String> ids) =>

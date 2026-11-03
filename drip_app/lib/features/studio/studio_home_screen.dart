@@ -19,6 +19,7 @@ import '../outfits/outfit_controller.dart';
 import '../wardrobe/wardrobe_controller.dart';
 import 'fit_canvas.dart';
 import 'studio_controller.dart';
+import '../tour/tour.dart';
 
 /// Drip Studio: where you make your own fits (a blank canvas, pieces from
 /// the catalogue or your wardrobe), keep them, and later see your Gen photos.
@@ -57,8 +58,11 @@ class StudioHomeScreen extends ConsumerWidget {
                   24 + MediaQuery.paddingOf(context).bottom,
                 ),
                 children: [
-                  _NewFitCard(
-                    onTap: () => _open(context, ref, wardrobe: false),
+                  TourAnchor(
+                    id: 'studio.new',
+                    child: _NewFitCard(
+                      onTap: () => _open(context, ref, wardrobe: false),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(

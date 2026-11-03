@@ -19,6 +19,7 @@ import '../photoshoot/photoshoot_controller.dart';
 import '../social/social_controller.dart';
 import 'profile_edit.dart';
 import 'profile_widgets.dart';
+import '../tour/tour.dart';
 
 class MyProfileScreen extends ConsumerStatefulWidget {
   const MyProfileScreen({super.key});
@@ -201,69 +202,72 @@ class _Body extends ConsumerWidget {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Expanded(child: SectionLabel('YOUR STYLE DNA')),
-                  // The picks behind the DNA and palette, editable.
-                  Tap(
-                    onTap: () => context.push('/me/style'),
-                    semanticLabel: 'Edit your style',
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 12,
-                      ),
-                      child: Text(
-                        'EDIT',
-                        style: AppText.mono(
-                          11,
-                          color: AppColors.cyan,
-                          letterSpacing: 1.5,
+          child: TourAnchor(
+            id: 'me.style',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(child: SectionLabel('YOUR STYLE DNA')),
+                    // The picks behind the DNA and palette, editable.
+                    Tap(
+                      onTap: () => context.push('/me/style'),
+                      semanticLabel: 'Edit your style',
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 12,
+                        ),
+                        child: Text(
+                          'EDIT',
+                          style: AppText.mono(
+                            11,
+                            color: AppColors.cyan,
+                            letterSpacing: 1.5,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              DnaChips(tags: user.styleDna),
-              const SizedBox(height: 12),
-              Tap(
-                onTap: () => context.push('/me/colour-theory'),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        'MY PALETTE',
-                        style: AppText.mono(9, color: AppColors.muted),
-                      ),
-                      const SizedBox(width: 12),
-                      for (final c in user.palette) ...[
-                        Container(
-                          width: 20,
-                          height: 20,
-                          margin: const EdgeInsets.only(right: 6),
-                          decoration: BoxDecoration(
-                            color: c,
-                            shape: BoxShape.circle,
-                            border: c == AppColors.base
-                                ? Border.all(color: AppColors.elevated)
-                                : null,
-                          ),
+                  ],
+                ),
+                DnaChips(tags: user.styleDna),
+                const SizedBox(height: 12),
+                Tap(
+                  onTap: () => context.push('/me/colour-theory'),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          'MY PALETTE',
+                          style: AppText.mono(9, color: AppColors.muted),
                         ),
+                        const SizedBox(width: 12),
+                        for (final c in user.palette) ...[
+                          Container(
+                            width: 20,
+                            height: 20,
+                            margin: const EdgeInsets.only(right: 6),
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: c == AppColors.base
+                                  ? Border.all(color: AppColors.elevated)
+                                  : null,
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         ProfileTabs(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../quiz/style_quiz.dart';
 import '../../core/motion.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text.dart';
@@ -26,6 +27,7 @@ import '../social/social_controller.dart';
 import 'feed_controller.dart';
 import 'occasion_card.dart';
 import 'occasions.dart';
+import '../tour/tour.dart';
 
 /// Home: brand + inbox → stories → today (date, time, pick, Ask Taylor) →
 /// tools → today's drip (into the Scroll) → a staggered wall of fresh fits.
@@ -78,13 +80,16 @@ class _HomeHeader extends StatelessWidget {
             Align(
               alignment: Alignment.centerLeft,
               // Like Instagram: + opens the camera (swiping right does too).
-              child: GlassIconButton(
-                semanticLabel: 'Open the camera',
-                onTap: openCamera(context),
-                child: const Icon(
-                  Icons.add_rounded,
-                  size: 24,
-                  color: AppColors.cream,
+              child: TourAnchor(
+                id: 'home.camera',
+                child: GlassIconButton(
+                  semanticLabel: 'Open the camera',
+                  onTap: openCamera(context),
+                  child: const Icon(
+                    Icons.add_rounded,
+                    size: 24,
+                    color: AppColors.cream,
+                  ),
                 ),
               ),
             ),
@@ -154,7 +159,7 @@ class _HomeBody extends ConsumerWidget {
           const SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: _FeatureBlocks(),
+              child: TourAnchor(id: 'home.tools', child: _FeatureBlocks()),
             ),
           ),
           SliverToBoxAdapter(
@@ -166,26 +171,29 @@ class _HomeBody extends ConsumerWidget {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 32, 20, 12),
-              child: Row(
-                children: [
-                  Text('SHOP BY OCCASION', style: AppText.display(15)),
-                  const SizedBox(width: 8),
-                  Text(
-                    Occasions.all.length.toString().padLeft(2, '0'),
-                    style: AppText.mono(10, color: AppColors.dim),
-                  ),
-                  if (picked.isNotEmpty) ...[
-                    const Spacer(),
+              child: TourAnchor(
+                id: 'home.occasions',
+                child: Row(
+                  children: [
+                    Text('SHOP BY OCCASION', style: AppText.display(15)),
+                    const SizedBox(width: 8),
                     Text(
-                      'YOURS FIRST',
-                      style: AppText.mono(
-                        10,
-                        color: AppColors.cyan,
-                        letterSpacing: 1.5,
-                      ),
+                      Occasions.all.length.toString().padLeft(2, '0'),
+                      style: AppText.mono(10, color: AppColors.dim),
                     ),
+                    if (picked.isNotEmpty) ...[
+                      const Spacer(),
+                      Text(
+                        'YOURS FIRST',
+                        style: AppText.mono(
+                          10,
+                          color: AppColors.cyan,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -673,6 +681,8 @@ class _Portrait extends StatelessWidget {
 // ─────────────────────────────────────────────────────────── feature blocks
 
 class _Feature {
+  // Every tool is live today; `soon` stays for the next one that isn't.
+  // ignore: unused_element_parameter
   const _Feature(this.index, this.icon, this.label, {this.soon = false});
   final String index;
   final IconData icon;
@@ -686,7 +696,7 @@ const _features = [
   _Feature('01', Icons.face_retouching_natural_rounded, 'Selfie Coordinator'),
   _Feature('02', Icons.palette_outlined, 'Colour Theory'),
   _Feature('03', Icons.shopping_bag_outlined, 'Shop List'),
-  _Feature('04', Icons.quiz_outlined, 'Style Quiz', soon: true),
+  _Feature('04', Icons.quiz_outlined, 'Style Quiz'),
 ];
 
 /// Four tools, 2×2, numbered like the index of a lookbook.
@@ -705,12 +715,15 @@ class _FeatureBlocks extends ConsumerWidget {
         context.push('/me/colour-theory');
       case '03':
         showBagSheet(context);
+      case '04':
+        context.push('/quiz');
     }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final inBag = ref.watch(bagProvider).length;
+    final quizDone = ref.watch(quizAnswersProvider).isNotEmpty;
     Widget tile(_Feature f) => Expanded(
       child: _FeatureTile(
         feature: f,
@@ -718,6 +731,8 @@ class _FeatureBlocks extends ConsumerWidget {
             ? 'AFTER BETA'
             : f.index == '03'
             ? (inBag == 0 ? 'EMPTY' : '$inBag IN BAG')
+            : f.index == '04'
+            ? (quizDone ? 'RETAKE' : '10 QUICK TAPS')
             : f.index == '01'
             ? 'GUIDED SELFIE'
             : 'YOUR PALETTE',

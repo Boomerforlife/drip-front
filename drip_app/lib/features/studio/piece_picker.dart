@@ -310,7 +310,8 @@ class _Details extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final links = ref.watch(pieceLinksProvider);
-    final link = links[piece.image] ?? links[piece.name.toLowerCase()];
+    final link =
+        piece.buyUrl ?? links[piece.image] ?? links[piece.name.toLowerCase()];
     final store = piece.brand?.toUpperCase();
     final kind = piece.subcategory?.toUpperCase();
     final from = switch (source) {

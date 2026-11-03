@@ -24,6 +24,13 @@ abstract final class Env {
   /// listed under Supabase → Authentication → URL Configuration.
   static const authRedirect = 'com.drip.drip://login-callback';
 
+  /// This build's version, sent with bug reports. Keep in step with
+  /// `version:` in pubspec.yaml (or pass --dart-define=APP_VERSION=…).
+  static const appVersion = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '1.0.0+1',
+  );
+
   static bool get isConfigured =>
       apiBaseUrl.isNotEmpty &&
       supabaseUrl.isNotEmpty &&

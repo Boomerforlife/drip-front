@@ -13,6 +13,7 @@ import '../../core/widgets/top_bar.dart';
 import '../../data/models/wardrobe.dart';
 import '../../routing/main_shell.dart';
 import 'wardrobe_controller.dart';
+import '../tour/tour.dart';
 
 /// Groups garments the way the wardrobe grid labels them. Uploads still
 /// being processed (or that failed) sit together at the top.
@@ -324,26 +325,29 @@ class _UploadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tap(
-      onTap: () => context.push('/wardrobe/capture'),
-      semanticLabel: 'Upload garment',
-      child: Container(
-        height: 158,
-        decoration: BoxDecoration(
-          color: AppColors.elevated,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.cyan),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('➕', style: AppText.inter(24, color: AppColors.cyan)),
-            const SizedBox(height: 10),
-            Text(
-              'UPLOAD GARMENT',
-              style: AppText.mono(9, color: AppColors.cyan),
-            ),
-          ],
+    return TourAnchor(
+      id: 'wardrobe.add',
+      child: Tap(
+        onTap: () => context.push('/wardrobe/capture'),
+        semanticLabel: 'Upload garment',
+        child: Container(
+          height: 158,
+          decoration: BoxDecoration(
+            color: AppColors.elevated,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.cyan),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('➕', style: AppText.inter(24, color: AppColors.cyan)),
+              const SizedBox(height: 10),
+              Text(
+                'UPLOAD GARMENT',
+                style: AppText.mono(9, color: AppColors.cyan),
+              ),
+            ],
+          ),
         ),
       ),
     );

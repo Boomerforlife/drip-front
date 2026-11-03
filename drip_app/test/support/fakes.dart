@@ -7,10 +7,12 @@ import 'package:drip/data/repositories/colour_repository.dart';
 import 'package:drip/data/repositories/discovery_repository.dart';
 import 'package:drip/data/repositories/feed_repository.dart';
 import 'package:drip/data/repositories/outfit_repository.dart';
+import 'package:drip/data/repositories/report_repository.dart';
 import 'package:drip/data/repositories/studio_repository.dart';
 import 'package:drip/data/repositories/stylist_repository.dart';
 import 'package:drip/data/repositories/wardrobe_repository.dart';
 import 'package:drip/features/onboarding/local_selfie.dart';
+import 'package:drip/features/tour/tour.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -77,8 +79,12 @@ List<Override> testOverrides(
   FeedRepository? feed,
   OutfitRepository? outfits,
   DiscoveryRepository? discovery,
+  ReportRepository? reports,
+  bool tourAutoStart = false,
 }) => [
   sharedPreferencesProvider.overrideWithValue(prefs),
+  // The first-run tour would cover every screen; tests start it by hand.
+  tourAutoStartProvider.overrideWithValue(tourAutoStart),
   authRepositoryProvider.overrideWithValue(
     auth ?? FakeAuthRepository(signedIn: signedIn),
   ),
@@ -91,6 +97,9 @@ List<Override> testOverrides(
   ),
   wardrobeRepositoryProvider.overrideWith((_) => MockWardrobeRepository()),
   studioRepositoryProvider.overrideWith((_) => MockStudioRepository()),
+  reportRepositoryProvider.overrideWith(
+    (_) => reports ?? MockReportRepository(),
+  ),
   stylistRepositoryProvider.overrideWith((_) => MockStylistRepository()),
   colourRepositoryProvider.overrideWith((_) => MockColourRepository()),
   discoveryRepositoryProvider.overrideWith(

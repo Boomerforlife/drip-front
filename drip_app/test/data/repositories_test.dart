@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:drip/core/utils/format.dart';
 import 'package:drip/data/mock/mock_users.dart';
 import 'package:drip/data/models/account.dart';
+import 'package:drip/data/models/outfit.dart';
 import 'package:drip/data/models/wardrobe.dart';
 import 'package:drip/data/repositories/local_store.dart';
 import 'package:drip/data/repositories/outfit_repository.dart';
@@ -143,7 +144,9 @@ void main() {
       final a = Account.fromJson({
         'user': {
           'id': 'u1',
-          'onboarding_prefs': {'moods': ['y2k']},
+          'onboarding_prefs': {
+            'moods': ['y2k'],
+          },
           'skin_tone': null,
           'style_tags': ['y2k'],
           'gen_credits_used': 1,
@@ -156,5 +159,16 @@ void main() {
       expect(a.hasAvatar, isTrue);
       expect(a.onboardingPrefs['moods'], ['y2k']);
     });
+  });
+
+  test('a Scroll fit carries its budget band when the server sends one', () {
+    Outfit fit(Map<String, dynamic> extra) =>
+        Outfit.fromJson({'id': 'f1', 'kind': 'collage', ...extra});
+    expect(fit({'budgetBand': 'in'}).budgetBand, 'in');
+    expect(
+      fit({'budgetBand': 'over'}).copyWith(isLiked: true).budgetBand,
+      'over',
+    );
+    expect(fit({}).budgetBand, isNull);
   });
 }

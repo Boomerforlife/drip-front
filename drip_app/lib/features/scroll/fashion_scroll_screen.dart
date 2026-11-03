@@ -26,8 +26,11 @@ import '../home/occasions.dart';
 import '../outfits/fit_actions.dart';
 import '../outfits/outfit_controller.dart';
 import '../outfits/shop_sheet.dart';
+import '../report/report_bug_sheet.dart';
 import 'fit_pieces_sheet.dart';
+import 'reel_physics.dart';
 import 'shop_the_look.dart';
+import '../tour/tour.dart';
 
 /// The Fashion Scroll: full-screen, one fit at a time, snapping vertically.
 ///
@@ -67,6 +70,9 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
 
   PageController? _pc;
   int _page = 0;
+
+  /// Where the next swipe is measured from (see [ReelPhysics]).
+  final _paging = ReelPaging();
   String? _viewingId;
   final _viewing = Stopwatch();
 
@@ -89,6 +95,7 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
               .indexWhere((o) => o.id == widget.startId)
               .clamp(0, items.length);
     _page = start;
+    _paging.page = start;
     return _pc = PageController(initialPage: _page);
   }
 
@@ -202,27 +209,38 @@ class _FashionScrollScreenState extends ConsumerState<FashionScrollScreen> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              PageView.builder(
-                controller: pc,
-                scrollDirection: Axis.vertical,
-                // A touch of resistance at the ends, native-feeling physics.
-                physics: const PageScrollPhysics(
-                  parent: ClampingScrollPhysics(),
+              NotificationListener<ScrollEndNotification>(
+                onNotification: (n) {
+                  if (n.depth == 0) _paging.settle(n.metrics);
+                  return false;
+                },
+                child: PageView.builder(
+                  controller: pc,
+                  scrollDirection: Axis.vertical,
+                  // One swipe, one fit: ReelPhysics does the snapping.
+                  pageSnapping: false,
+                  physics: ReelPhysics(
+                    _paging,
+                    parent: const ClampingScrollPhysics(),
+                  ),
+                  // The fit after this one is built (and its picture decoded)
+                  // before the swipe, so it slides in ready.
+                  allowImplicitScrolling: true,
+                  itemCount: items.length + 1,
+                  onPageChanged: (i) => _onPage(state, i),
+                  itemBuilder: (context, i) => i < items.length
+                      ? _ReelPage(
+                          key: ValueKey(items[i].id),
+                          outfit: items[i],
+                          active: i == _page,
+                        )
+                      : _FeedTail(
+                          state: state,
+                          onRetry: () =>
+                              ref.read(_feedProvider.notifier).loadMore(),
+                          onTop: _toTop,
+                        ),
                 ),
-                itemCount: items.length + 1,
-                onPageChanged: (i) => _onPage(state, i),
-                itemBuilder: (context, i) => i < items.length
-                    ? _ReelPage(
-                        key: ValueKey(items[i].id),
-                        outfit: items[i],
-                        active: i == _page,
-                      )
-                    : _FeedTail(
-                        state: state,
-                        onRetry: () =>
-                            ref.read(_feedProvider.notifier).loadMore(),
-                        onTop: _toTop,
-                      ),
               ),
               if (context.canPop() || occasion != null)
                 Positioned(
@@ -536,17 +554,20 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
                 children: [
                   SizedBox(height: top),
                   Expanded(
-                    child: _Stage(
-                      outfit: outfit,
-                      expanded: _expanded,
-                      shop: ShopTheLook(
-                        spots: _spots,
-                        onOpen: _expanded ? null : _openShop,
-                        child: const SizedBox.shrink(),
+                    child: TourAnchor(
+                      id: 'scroll.stage',
+                      child: _Stage(
+                        outfit: outfit,
+                        expanded: _expanded,
+                        shop: ShopTheLook(
+                          spots: _spots,
+                          onOpen: _expanded ? null : _openShop,
+                          child: const SizedBox.shrink(),
+                        ),
+                        onBackground: (c) {
+                          if (mounted && c != _bg) setState(() => _bg = c);
+                        },
                       ),
-                      onBackground: (c) {
-                        if (mounted && c != _bg) setState(() => _bg = c);
-                      },
                     ),
                   ),
                   _InfoPanel(
@@ -617,7 +638,10 @@ class _Stage extends StatelessWidget {
                   child: AnimatedOpacity(
                     opacity: expanded ? 0 : 1,
                     duration: Motion.dur(context, Motion.quick),
-                    child: _ActionRail(outfit: outfit),
+                    child: TourAnchor(
+                      id: 'scroll.rail',
+                      child: _ActionRail(outfit: outfit),
+                    ),
                   ),
                 ),
               ),
@@ -1004,6 +1028,14 @@ class _ShopStrip extends ConsumerWidget {
   const _ShopStrip({required this.outfit});
   final Outfit outfit;
 
+  /// The server's budget band, said plainly, so a jump in price as the feed
+  /// moves past the fits in budget doesn't come as a surprise.
+  static String _band(String? band) => switch (band) {
+    'in' => ' · in your budget',
+    'over' => ' · above your budget',
+    _ => '',
+  };
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final total = outfit.price;
@@ -1042,7 +1074,7 @@ class _ShopStrip extends ConsumerWidget {
                   const SizedBox(height: 3),
                   Text(
                     total > 0
-                        ? '${formatPrice(total)} total'
+                        ? '${formatPrice(total)} total${_band(outfit.budgetBand)}'
                         : 'See the pieces',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1106,6 +1138,12 @@ class _ActionRail extends ConsumerWidget {
           icon: Icons.ios_share_rounded,
           semantic: 'Share',
           onTap: () => showAfterBeta(context, 'Sharing'),
+        ),
+        _RailButton(
+          icon: Icons.bug_report_outlined,
+          semantic: 'Report a bug',
+          onTap: () =>
+              showReportBug(context, screen: 'scroll', fitId: outfit.id),
         ),
       ],
     );

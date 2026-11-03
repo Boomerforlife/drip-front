@@ -15,6 +15,7 @@ import 'repositories/feed_repository.dart';
 import 'repositories/local_store.dart';
 import 'repositories/outfit_repository.dart';
 import 'repositories/posts_repository.dart';
+import 'repositories/report_repository.dart';
 import 'repositories/social_repository.dart';
 import 'repositories/studio_repository.dart';
 import 'repositories/stylist_repository.dart';
@@ -99,6 +100,13 @@ final discoveryRepositoryProvider = Provider<DiscoveryRepository>(
 
 final colourRepositoryProvider = Provider<ColourRepository>(
   (ref) => ApiColourRepository(ref.watch(apiClientProvider)),
+);
+
+final reportRepositoryProvider = Provider<ReportRepository>(
+  (ref) => ApiReportRepository(
+    ref.watch(apiClientProvider),
+    ref.watch(localStoreProvider),
+  ),
 );
 
 final postsRepositoryProvider = Provider<PostsRepository>(

@@ -61,6 +61,7 @@ class StudioPiece {
     this.source = 'catalog',
     this.brand,
     this.subcategory,
+    this.buyUrl,
   });
   final String id;
   final String name;
@@ -71,6 +72,9 @@ class StudioPiece {
   /// What it is, finer than [category] ("jeans", "bag"); null for wardrobe
   /// pieces.
   final String? subcategory;
+
+  /// The product page on its store; null for wardrobe pieces.
+  final String? buyUrl;
 
   /// Studio category label (OUTERWEAR, TOPS, BOTTOMS, FOOTWEAR…).
   final String category;
@@ -94,6 +98,7 @@ class StudioPiece {
       source: json['source'] as String? ?? 'catalog',
       brand: json['brand'] as String?,
       subcategory: json['subcategory'] as String?,
+      buyUrl: json['buyUrl'] as String?,
     );
   }
 }

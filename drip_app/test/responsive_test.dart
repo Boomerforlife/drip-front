@@ -37,6 +37,7 @@ const _routes = [
   '/following',
   '/activity',
   '/settings',
+  '/privacy',
   '/photoshoot',
 ];
 

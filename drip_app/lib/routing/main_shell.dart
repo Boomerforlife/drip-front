@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import '../core/motion.dart';
 import '../core/tab_direction.dart';
 import '../core/widgets/bottom_nav.dart';
+import '../features/tour/tour.dart';
+import '../features/tour/tour_overlay.dart';
 
 export '../core/tab_direction.dart';
 
@@ -124,11 +127,16 @@ class MainShell extends StatelessWidget {
               left: 0,
               right: 0,
               bottom: 0,
-              child: DripBottomNav(
-                active: active,
-                onTab: (tab) => _goTab(context, tab, active),
+              child: TourAnchor(
+                id: 'nav',
+                child: DripBottomNav(
+                  active: active,
+                  onTab: (tab) => _goTab(context, tab, active),
+                ),
               ),
             ),
+          // The first-run tour, over everything (the nav included).
+          Positioned.fill(child: TourOverlay(path: path)),
         ],
       ),
     );
@@ -262,12 +270,18 @@ class _TabSwipeState extends State<_TabSwipe>
     // Always the same widget structure (handlers are just switched off on
     // detail screens) so navigating never rebuilds the screen underneath.
     final on = widget.tab != null;
-    return GestureDetector(
+    return RawGestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: on ? _onStart : null,
-      onHorizontalDragUpdate: on ? _onUpdate : null,
-      onHorizontalDragEnd: on ? _onEnd : null,
-      onHorizontalDragCancel: on ? () => _springHome(0) : null,
+      gestures: {
+        _SidewaysDrag: GestureRecognizerFactoryWithHandlers<_SidewaysDrag>(
+          _SidewaysDrag.new,
+          (r) => r
+            ..onStart = on ? _onStart : null
+            ..onUpdate = on ? _onUpdate : null
+            ..onEnd = on ? _onEnd : null
+            ..onCancel = on ? () => _springHome(0) : null,
+        ),
+      },
       child: ValueListenableBuilder<double>(
         valueListenable: _dx,
         child: RepaintBoundary(child: widget.child),
@@ -276,4 +290,35 @@ class _TabSwipeState extends State<_TabSwipe>
       ),
     );
   }
+}
+
+/// A horizontal drag that only wins when the finger is clearly travelling
+/// sideways. A thumb swiping up the Scroll arcs a little, and a plain
+/// horizontal recognizer would grab that arc as a tab swipe, so the fit
+/// didn't change and the swipe had to be made again.
+class _SidewaysDrag extends HorizontalDragGestureRecognizer {
+  Offset _moved = Offset.zero;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    _moved = Offset.zero;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    if (event is PointerMoveEvent) _moved += event.delta;
+    super.handleEvent(event);
+  }
+
+  @override
+  bool hasSufficientGlobalDistanceToAccept(
+    PointerDeviceKind pointerDeviceKind,
+    double? deviceTouchSlop,
+  ) =>
+      _moved.dx.abs() > _moved.dy.abs() * 1.5 &&
+      super.hasSufficientGlobalDistanceToAccept(
+        pointerDeviceKind,
+        deviceTouchSlop,
+      );
 }
